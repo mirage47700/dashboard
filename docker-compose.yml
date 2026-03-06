@@ -1,0 +1,23 @@
+version: "3.9"
+
+services:
+  dashboard:
+    build: .
+    container_name: vps-dashboard
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:8000:8000"   # Bind local only — Cloudflare Tunnel handles exposure
+    volumes:
+      - ./data:/app/data         # SQLite persistence
+    env_file:
+      - .env
+    environment:
+      - TZ=Europe/Paris
+
+  # Cloudflare Tunnel (optionnel — peut être géré manuellement)
+  # cloudflared:
+  #   image: cloudflare/cloudflared:latest
+  #   restart: unless-stopped
+  #   command: tunnel --no-autoupdate run --token ${CLOUDFLARE_TUNNEL_TOKEN}
+  #   environment:
+  #     - CLOUDFLARE_TUNNEL_TOKEN=${CLOUDFLARE_TUNNEL_TOKEN}

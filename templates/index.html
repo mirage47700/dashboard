@@ -1,0 +1,205 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Dashboard</title>
+  <link rel="manifest" href="/static/manifest.json" />
+  <meta name="mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <meta name="apple-mobile-web-app-title" content="Dashboard" />
+  <meta name="theme-color" content="#0d0f14" />
+  <link rel="apple-touch-icon" href="/static/icons/icon-192.png" />
+  <link rel="stylesheet" href="/static/css/style.css" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet" />
+</head>
+<body>
+  <!-- HEADER -->
+  <header class="header">
+    <div class="header-left">
+      <div class="header-date" id="headerDate"></div>
+      <div class="header-time" id="headerTime"></div>
+    </div>
+    <div class="header-center">
+      <div class="header-greeting" id="headerGreeting"></div>
+    </div>
+    <div class="header-right">
+      <div class="summary-chips" id="summaryChips"></div>
+      <button class="tg-btn" id="tgBtn" onclick="sendTelegramDigest()" title="Envoyer le résumé sur Telegram">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="M12 0C5.373 0 0 5.373 0 12s5.373 12 12 12 12-5.373 12-12S18.627 0 12 0zm5.562 8.248-1.97 9.289c-.145.658-.537.818-1.084.508l-3-2.21-1.447 1.394c-.16.16-.295.295-.605.295l.213-3.053 5.56-5.023c.242-.213-.054-.333-.373-.12L7.248 14.79l-2.95-.924c-.642-.2-.654-.642.135-.953l11.57-4.461c.537-.194 1.006.131.559.796z"/></svg>
+        <span id="tgBtnLabel">Digest</span>
+      </button>
+    </div>
+  </header>
+
+  <!-- MAIN LAYOUT -->
+  <main class="layout">
+
+    <!-- COLONNE GAUCHE : Agenda -->
+    <section class="panel panel-agenda">
+      <div class="panel-header">
+        <h2>Agenda du jour</h2>
+        <a id="gcalStatusBtn" href="/auth/google" class="gcal-connect-btn" title="Connecter Google Calendar">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><path d="M19 3h-1V1h-2v2H8V1H6v2H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2zm0 16H5V8h14v11zM7 10h5v5H7z"/></svg>
+          <span id="gcalStatusLabel">Connecter</span>
+        </a>
+        <button class="btn-icon" onclick="openModal('eventModal')">+</button>
+      </div>
+
+      <!-- Mini calendrier -->
+      <div class="mini-calendar" id="miniCalendar"></div>
+
+      <!-- Events du jour -->
+      <div class="agenda-day" id="agendaDay">
+        <div class="agenda-timeline" id="agendaTimeline"></div>
+      </div>
+    </section>
+
+    <!-- COLONNE CENTRE : Tâches -->
+    <section class="panel panel-tasks">
+      <div class="panel-header">
+        <h2>Tâches</h2>
+        <div class="task-filters">
+          <button class="filter-btn active" data-filter="all">Tout</button>
+          <button class="filter-btn" data-filter="today">Aujourd'hui</button>
+          <button class="filter-btn" data-filter="todo">À faire</button>
+          <button class="filter-btn" data-filter="done">Fait</button>
+        </div>
+        <button class="btn-icon" onclick="openModal('taskModal')">+</button>
+      </div>
+      <div class="tasks-list" id="tasksList"></div>
+    </section>
+
+    <!-- COLONNE DROITE : Crons + API -->
+    <section class="panel panel-side">
+
+      <!-- Consommation API -->
+      <div class="side-section side-section-api">
+        <div class="panel-header">
+          <h2>Consommation API</h2>
+          <button class="btn-icon" onclick="loadUsage()" title="Rafraîchir">↻</button>
+        </div>
+        <div class="api-usage-list" id="apiUsageList"></div>
+      </div>
+
+    </section>
+
+    <!-- COLONNE TRADING : Notion STM -->
+    <section class="panel panel-trading">
+      <div class="panel-header">
+        <h2>Trading</h2>
+        <div class="trading-tabs">
+          <button class="trade-tab active" data-tab="open" onclick="switchTradeTab('open')">Live</button>
+          <button class="trade-tab" data-tab="recent" onclick="switchTradeTab('recent')">Récent</button>
+          <button class="trade-tab" data-tab="watchlist" onclick="switchTradeTab('watchlist')">Watch</button>
+        </div>
+      </div>
+      <div id="tradingContent"></div>
+    </section>
+
+  </main>
+
+  <!-- ================================================================
+       MODALS
+  ================================================================ -->
+
+  <!-- Modal Tâche -->
+  <div class="modal-overlay" id="taskModal">
+    <div class="modal">
+      <div class="modal-header">
+        <h3 id="taskModalTitle">Nouvelle tâche</h3>
+        <button class="btn-close" onclick="closeModal('taskModal')">✕</button>
+      </div>
+      <div class="modal-body">
+        <input type="hidden" id="taskId" />
+        <div class="form-group">
+          <label>Titre *</label>
+          <input type="text" id="taskTitle" placeholder="Titre de la tâche…" />
+        </div>
+        <div class="form-group">
+          <label>Description</label>
+          <textarea id="taskDesc" rows="3" placeholder="Détails…"></textarea>
+        </div>
+        <div class="form-row">
+          <div class="form-group">
+            <label>Priorité</label>
+            <select id="taskPriority">
+              <option value="high">🔴 Haute</option>
+              <option value="medium" selected>🟡 Moyenne</option>
+              <option value="low">🟢 Basse</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label>Statut</label>
+            <select id="taskStatus">
+              <option value="todo">À faire</option>
+              <option value="in_progress">En cours</option>
+              <option value="done">Terminé</option>
+            </select>
+          </div>
+        </div>
+        <div class="form-group">
+          <label>Date</label>
+          <input type="date" id="taskDate" />
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-secondary" onclick="closeModal('taskModal')">Annuler</button>
+        <button class="btn btn-primary" onclick="saveTask()">Enregistrer</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Modal Événement -->
+  <div class="modal-overlay" id="eventModal">
+    <div class="modal">
+      <div class="modal-header">
+        <h3>Nouvel événement</h3>
+        <button class="btn-close" onclick="closeModal('eventModal')">✕</button>
+      </div>
+      <div class="modal-body">
+        <div class="form-group">
+          <label>Titre *</label>
+          <input type="text" id="eventTitle" placeholder="Titre de l'événement…" />
+        </div>
+        <div class="form-group">
+          <label>Description</label>
+          <textarea id="eventDesc" rows="2" placeholder="Détails…"></textarea>
+        </div>
+        <div class="form-row">
+          <div class="form-group">
+            <label>Début *</label>
+            <input type="datetime-local" id="eventStart" />
+          </div>
+          <div class="form-group">
+            <label>Fin</label>
+            <input type="datetime-local" id="eventEnd" />
+          </div>
+        </div>
+        <div class="form-group">
+          <label>Couleur</label>
+          <div class="color-picker">
+            <button class="color-dot dot-blue active" data-color="blue"></button>
+            <button class="color-dot dot-purple" data-color="purple"></button>
+            <button class="color-dot dot-green" data-color="green"></button>
+            <button class="color-dot dot-pink" data-color="pink"></button>
+            <button class="color-dot dot-yellow" data-color="yellow"></button>
+          </div>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-secondary" onclick="closeModal('eventModal')">Annuler</button>
+        <button class="btn btn-primary" onclick="saveEvent()">Enregistrer</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Toast notifications -->
+  <div class="toast-container" id="toastContainer"></div>
+
+  <script src="/static/js/app.js"></script>
+</body>
+</html>
