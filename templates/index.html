@@ -202,6 +202,16 @@
   <!-- Toast notifications -->
   <div class="toast-container" id="toastContainer"></div>
 
+  <!-- IBKR TABLE SECTION (bottom, full width) -->
+  <section class="ibkr-section" id="ibkrSection">
+    <div class="ibkr-section-header">
+      <h2>IBKR — Historique des trades</h2>
+      <button class="btn-icon" onclick="syncIbkr()" id="ibkrSyncBtnTable" title="Synchroniser IBKR">↻</button>
+      <span class="ibkr-section-sync" id="ibkrSectionSync"></span>
+    </div>
+    <div id="ibkrTableContainer"></div>
+  </section>
+
   <script src="/static/js/app.js"></script>
 </body>
 </html>
