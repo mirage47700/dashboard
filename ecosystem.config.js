@@ -2,12 +2,12 @@ module.exports = {
   apps: [
     {
       name: "dashboard",
-      script: ".venv/bin/python",
+      script: "venv/bin/python",
       args: "-m uvicorn main:app --host 0.0.0.0 --port 8080",
-      cwd: "/home/user/dashboard",
+      cwd: "/home/dashboard",
       interpreter: "none",
       env: {
-        PYTHONPATH: "/home/user/dashboard",
+        PYTHONPATH: "/home/dashboard",
       },
       watch: false,
       autorestart: true,
