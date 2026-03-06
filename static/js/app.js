@@ -908,6 +908,7 @@ async function init() {
     loadSummary(),
     loadTrading(),
     loadIbkr(),
+    loadIbkrRaw(),
   ]);
 
   // Refresh summary every minute
@@ -917,6 +918,68 @@ async function init() {
   checkGoogleStatus();
   checkTelegramStatus();
   loadUsage();
+}
+
+// ---------------------------------------------------------------------------
+// IBKR Raw trades table
+// ---------------------------------------------------------------------------
+let ibkrRawTrades = null;
+
+async function loadIbkrRaw() {
+  try {
+    ibkrRawTrades = await api('/api/ibkr/trades?limit=500');
+  } catch(e) { ibkrRawTrades = []; }
+  renderIbkrRaw();
+}
+
+function renderIbkrRaw() {
+  const container = $('ibkrRawTableContainer');
+  const countEl   = $('ibkrRawCount');
+  if (!container) return;
+
+  if (!ibkrRawTrades || !ibkrRawTrades.length) {
+    container.innerHTML = '<div class="ibkr-tbl-empty">Aucun trade enregistré</div>';
+    if (countEl) countEl.textContent = '';
+    return;
+  }
+
+  if (countEl) countEl.textContent = `${ibkrRawTrades.length} lignes`;
+
+  let html = `<table class="ibkr-tbl ibkr-raw-tbl">
+    <thead>
+      <tr>
+        <th>Date</th>
+        <th>Symbole</th>
+        <th>Catégorie</th>
+        <th>B/V</th>
+        <th class="num">Quantité</th>
+        <th class="num">Prix</th>
+        <th class="num">Produit</th>
+        <th class="num">Commission</th>
+        <th class="num">PnL réalisé</th>
+      </tr>
+    </thead>
+    <tbody>`;
+
+  for (const t of ibkrRawTrades) {
+    const pnlCls  = t.pnl > 0 ? 'pos' : t.pnl < 0 ? 'neg' : '';
+    const pnlSign = t.pnl >= 0 ? '+' : '';
+    const bsCls   = t.buy_sell === 'BUY' ? 'buy' : 'sell';
+    html += `<tr>
+      <td>${t.trade_date || '—'}</td>
+      <td class="bold">${escHtml(t.symbol || '—')}</td>
+      <td>${escHtml(t.asset_category || '—')}</td>
+      <td><span class="ibkr-trade-bs ${bsCls}">${t.buy_sell === 'BUY' ? 'Achat' : 'Vente'}</span></td>
+      <td class="num">${t.quantity != null ? t.quantity : '—'}</td>
+      <td class="num">${t.price != null ? '$' + t.price.toFixed(2) : '—'}</td>
+      <td class="num">${t.proceeds != null ? '$' + t.proceeds.toFixed(2) : '—'}</td>
+      <td class="num comm">${t.commission != null ? '-$' + Math.abs(t.commission).toFixed(2) : '—'}</td>
+      <td class="num ${pnlCls}">${t.pnl !== 0 && t.pnl != null ? `${pnlSign}$${Math.abs(t.pnl).toFixed(2)}` : '—'}</td>
+    </tr>`;
+  }
+
+  html += '</tbody></table>';
+  container.innerHTML = html;
 }
 
 init();

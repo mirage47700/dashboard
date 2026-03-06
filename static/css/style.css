@@ -1265,6 +1265,29 @@ td.comm { color: var(--text-muted); font-size: 12px; }
 .ibkr-tbl-sub tbody tr:last-child td { border-bottom: none; }
 .ibkr-tbl-sub tbody tr:hover td { background: var(--bg-hover); }
 
+/* Raw trades table */
+.ibkr-raw-section { margin-top: 0; }
+.ibkr-raw-tbl { width: 100%; }
+.ibkr-raw-tbl thead th {
+  background: var(--bg-card);
+  color: var(--text-muted);
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
+  padding: 10px 16px;
+  border-bottom: 1px solid var(--border);
+  white-space: nowrap;
+}
+.ibkr-raw-tbl thead th.num { text-align: right; }
+.ibkr-raw-tbl tbody tr td {
+  padding: 9px 16px;
+  font-size: 12.5px;
+  border-bottom: 1px solid rgba(255,255,255,0.04);
+  white-space: nowrap;
+}
+.ibkr-raw-tbl tbody tr:hover td { background: var(--bg-hover); }
+
 /* ================================================================
    RESPONSIVE
 ================================================================ */
