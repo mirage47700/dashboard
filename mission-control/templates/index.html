@@ -1,0 +1,307 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>OpenClaw Mission Control</title>
+  <link rel="stylesheet" href="/static/css/style.css" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet" />
+</head>
+<body>
+
+  <!-- HEADER -->
+  <header class="mc-header">
+    <div class="mc-logo">
+      <span class="mc-logo-icon">C</span>
+      <span class="mc-logo-text">OpenClaw <span class="mc-logo-sub">Mission Control</span></span>
+    </div>
+    <div class="mc-hb" id="mcHeartbeat">
+      <span class="mc-hb-dot"></span>
+      <span id="mcHbLabel">En attente...</span>
+    </div>
+    <div class="mc-clock" id="mcClock"></div>
+  </header>
+
+  <!-- TABS -->
+  <nav class="mc-tabs">
+    <button class="mc-tab active" id="tab-board"    onclick="switchTab('board')">Board</button>
+    <button class="mc-tab"        id="tab-calendar" onclick="switchTab('calendar')">Calendar</button>
+    <button class="mc-tab"        id="tab-projects" onclick="switchTab('projects')">Projects</button>
+    <button class="mc-tab"        id="tab-memories" onclick="switchTab('memories')">Memories</button>
+    <button class="mc-tab"        id="tab-docs"     onclick="switchTab('docs')">Docs</button>
+    <button class="mc-tab"        id="tab-team"     onclick="switchTab('team')">Team</button>
+    <button class="mc-tab"        id="tab-office"   onclick="switchTab('office')">Office</button>
+  </nav>
+
+  <!-- ===== BOARD ===== -->
+  <section id="section-board" class="mc-section">
+    <div class="section-toolbar">
+      <h2>Task Board</h2>
+      <select id="boardAgentFilter" onchange="loadBoard()">
+        <option value="">Tous les agents</option>
+        <option value="openclaw">OpenClaw</option>
+      </select>
+      <button class="btn-primary" onclick="openTaskModal()">+ Tache</button>
+    </div>
+    <div class="board-layout">
+      <div class="kanban">
+        <div class="kanban-col" ondragover="event.preventDefault()" ondrop="dropTask(event,'backlog')">
+          <div class="kanban-col-hdr backlog">Backlog <span id="cnt-backlog">0</span></div>
+          <div class="kanban-cards" id="cards-backlog"></div>
+        </div>
+        <div class="kanban-col" ondragover="event.preventDefault()" ondrop="dropTask(event,'todo')">
+          <div class="kanban-col-hdr todo">A faire <span id="cnt-todo">0</span></div>
+          <div class="kanban-cards" id="cards-todo"></div>
+        </div>
+        <div class="kanban-col" ondragover="event.preventDefault()" ondrop="dropTask(event,'in_progress')">
+          <div class="kanban-col-hdr in-progress">En cours <span id="cnt-in_progress">0</span></div>
+          <div class="kanban-cards" id="cards-in_progress"></div>
+        </div>
+        <div class="kanban-col" ondragover="event.preventDefault()" ondrop="dropTask(event,'done')">
+          <div class="kanban-col-hdr done">Termine <span id="cnt-done">0</span></div>
+          <div class="kanban-cards" id="cards-done"></div>
+        </div>
+      </div>
+      <div class="activity-panel">
+        <div class="activity-hdr">Live Activity</div>
+        <div class="activity-list" id="activityList"></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ===== CALENDAR ===== -->
+  <section id="section-calendar" class="mc-section hidden">
+    <div class="section-toolbar"><h2>Calendar & Cron Jobs</h2></div>
+    <div id="cronContainer"></div>
+  </section>
+
+  <!-- ===== PROJECTS ===== -->
+  <section id="section-projects" class="mc-section hidden">
+    <div class="section-toolbar">
+      <h2>Projects</h2>
+      <button class="btn-primary" onclick="openProjectModal()">+ Projet</button>
+    </div>
+    <div class="projects-grid" id="projectsGrid"></div>
+  </section>
+
+  <!-- ===== MEMORIES ===== -->
+  <section id="section-memories" class="mc-section hidden">
+    <div class="section-toolbar"><h2>Agent Memories</h2></div>
+    <div class="memories-container" id="memoriesContainer"></div>
+  </section>
+
+  <!-- ===== DOCS ===== -->
+  <section id="section-docs" class="mc-section hidden">
+    <div class="section-toolbar">
+      <h2>Documents</h2>
+      <input type="text" class="search-input" id="docsSearch" placeholder="Rechercher..." oninput="filterDocs()" />
+      <select id="docsCatFilter" onchange="filterDocs()">
+        <option value="">Toutes</option>
+        <option value="draft">Draft</option>
+        <option value="plan">Plan</option>
+        <option value="report">Report</option>
+        <option value="general">General</option>
+      </select>
+      <button class="btn-primary" onclick="openDocModal()">+ Doc</button>
+    </div>
+    <div class="docs-grid" id="docsGrid"></div>
+  </section>
+
+  <!-- ===== TEAM ===== -->
+  <section id="section-team" class="mc-section hidden">
+    <div class="section-toolbar">
+      <h2>Team</h2>
+      <button class="btn-primary" onclick="openTeamModal()">+ Agent</button>
+    </div>
+    <div class="team-org" id="teamOrg"></div>
+  </section>
+
+  <!-- ===== OFFICE ===== -->
+  <section id="section-office" class="mc-section hidden">
+    <div class="section-toolbar">
+      <h2>OpenClaw HQ</h2>
+      <div class="office-legend">
+        <span class="leg working">Working</span>
+        <span class="leg idle">Idle</span>
+        <span class="leg offline">Offline</span>
+      </div>
+    </div>
+    <div class="office-wrapper">
+      <div class="office-floor" id="officeFloor"></div>
+      <div class="office-ticker" id="officeTicker">
+        <div class="ticker-hdr">Activity Feed</div>
+        <div id="tickerItems"></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ===== MODALS ===== -->
+
+  <!-- Task Modal -->
+  <div class="modal-overlay hidden" id="taskModal">
+    <div class="modal">
+      <div class="modal-hdr">
+        <h3 id="taskModalTitle">Nouvelle tache</h3>
+        <button class="btn-close" onclick="closeModal('taskModal')">x</button>
+      </div>
+      <div class="modal-body">
+        <input type="hidden" id="taskId" />
+        <div class="form-group">
+          <label>Titre *</label>
+          <input type="text" id="taskTitle" placeholder="Titre..." />
+        </div>
+        <div class="form-group">
+          <label>Description</label>
+          <textarea id="taskDesc" rows="3" placeholder="Details..."></textarea>
+        </div>
+        <div class="form-row">
+          <div class="form-group">
+            <label>Statut</label>
+            <select id="taskStatus">
+              <option value="backlog">Backlog</option>
+              <option value="todo" selected>A faire</option>
+              <option value="in_progress">En cours</option>
+              <option value="done">Termine</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label>Priorite</label>
+            <select id="taskPriority">
+              <option value="urgent">Urgent</option>
+              <option value="high">Haute</option>
+              <option value="medium" selected>Moyenne</option>
+              <option value="low">Basse</option>
+            </select>
+          </div>
+        </div>
+        <div class="form-row">
+          <div class="form-group">
+            <label>Assigne a</label>
+            <input type="text" id="taskAssigned" value="openclaw" />
+          </div>
+          <div class="form-group">
+            <label>Projet</label>
+            <select id="taskProject"><option value="">Aucun</option></select>
+          </div>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn-secondary" onclick="closeModal('taskModal')">Annuler</button>
+        <button id="taskDeleteBtn" class="btn-danger hidden" onclick="deleteTask()">Supprimer</button>
+        <button class="btn-primary" onclick="saveTask()">Enregistrer</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Project Modal -->
+  <div class="modal-overlay hidden" id="projectModal">
+    <div class="modal">
+      <div class="modal-hdr">
+        <h3 id="projectModalTitle">Nouveau projet</h3>
+        <button class="btn-close" onclick="closeModal('projectModal')">x</button>
+      </div>
+      <div class="modal-body">
+        <input type="hidden" id="projectId" />
+        <div class="form-group"><label>Nom *</label><input type="text" id="projectName" /></div>
+        <div class="form-group"><label>Description</label><textarea id="projectDesc" rows="3"></textarea></div>
+        <div class="form-row">
+          <div class="form-group">
+            <label>Statut</label>
+            <select id="projectStatus">
+              <option value="active">Actif</option>
+              <option value="paused">Pause</option>
+              <option value="done">Termine</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label>Progression (%)</label>
+            <input type="number" id="projectProgress" min="0" max="100" value="0" />
+          </div>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn-secondary" onclick="closeModal('projectModal')">Annuler</button>
+        <button class="btn-primary" onclick="saveProject()">Enregistrer</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Doc Modal -->
+  <div class="modal-overlay hidden" id="docModal">
+    <div class="modal modal-lg">
+      <div class="modal-hdr">
+        <h3 id="docModalTitle">Nouveau document</h3>
+        <button class="btn-close" onclick="closeModal('docModal')">x</button>
+      </div>
+      <div class="modal-body">
+        <input type="hidden" id="docId" />
+        <div class="form-row">
+          <div class="form-group flex1"><label>Titre *</label><input type="text" id="docTitle" /></div>
+          <div class="form-group">
+            <label>Categorie</label>
+            <select id="docCategory">
+              <option value="general">General</option>
+              <option value="draft">Draft</option>
+              <option value="plan">Plan</option>
+              <option value="report">Report</option>
+            </select>
+          </div>
+        </div>
+        <div class="form-group"><label>Contenu</label><textarea id="docContent" rows="12" class="doc-textarea"></textarea></div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn-secondary" onclick="closeModal('docModal')">Annuler</button>
+        <button id="docDeleteBtn" class="btn-danger hidden" onclick="deleteDoc()">Supprimer</button>
+        <button class="btn-primary" onclick="saveDoc()">Enregistrer</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Team Modal -->
+  <div class="modal-overlay hidden" id="teamModal">
+    <div class="modal">
+      <div class="modal-hdr">
+        <h3 id="teamModalTitle">Nouvel agent</h3>
+        <button class="btn-close" onclick="closeModal('teamModal')">x</button>
+      </div>
+      <div class="modal-body">
+        <input type="hidden" id="teamId" />
+        <div class="form-row">
+          <div class="form-group flex1"><label>Nom *</label><input type="text" id="teamName" /></div>
+          <div class="form-group"><label>Emoji</label><input type="text" id="teamEmoji" maxlength="2" style="width:60px" value="?" /></div>
+        </div>
+        <div class="form-row">
+          <div class="form-group flex1"><label>Role</label><input type="text" id="teamRole" /></div>
+          <div class="form-group">
+            <label>Type</label>
+            <select id="teamType">
+              <option value="main">Main</option>
+              <option value="sub" selected>Sub</option>
+              <option value="human">Human</option>
+            </select>
+          </div>
+        </div>
+        <div class="form-group"><label>Mission</label><textarea id="teamMission" rows="3"></textarea></div>
+        <div class="form-row">
+          <div class="form-group">
+            <label>Couleur</label>
+            <input type="color" id="teamColor" value="#4f8ef7" />
+          </div>
+          <div class="form-group flex1">
+            <label>Parent</label>
+            <select id="teamParent"><option value="">Aucun</option></select>
+          </div>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn-secondary" onclick="closeModal('teamModal')">Annuler</button>
+        <button id="teamDeleteBtn" class="btn-danger hidden" onclick="deleteMember()">Supprimer</button>
+        <button class="btn-primary" onclick="saveMember()">Enregistrer</button>
+      </div>
+    </div>
+  </div>
+
+  <script src="/static/js/app.js"></script>
+</body>
+</html>
