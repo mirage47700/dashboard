@@ -28,16 +28,57 @@ uvicorn main:app --reload
 
 ```bash
 git clone <repo-url>
-cd screen/dashboard
+cd dashboard
 ```
 
-### 2. Lancer avec Docker Compose
+### 2. Créer le virtualenv et installer les dépendances
+
+```bash
+python3 -m venv .venv
+.venv/bin/pip install -r requirements.txt
+```
+
+### 3. Démarrer avec PM2 (premier lancement)
+
+```bash
+pm2 start ecosystem.config.js
+pm2 save
+pm2 startup   # pour démarrer au boot
+```
+
+Le serveur écoute sur `127.0.0.1:8000` (pas exposé publiquement).
+
+### 4. Mettre à jour (fetch + merge + reload)
+
+```bash
+./deploy.sh
+```
+
+Ou manuellement :
+
+```bash
+git fetch origin main
+git merge origin/main
+.venv/bin/pip install -r requirements.txt -q
+pm2 reload dashboard
+```
+
+### Commandes PM2 utiles
+
+```bash
+pm2 status          # état du process
+pm2 logs dashboard  # voir les logs
+pm2 restart dashboard
+pm2 stop dashboard
+```
+
+---
+
+### Déploiement avec Docker Compose (alternative)
 
 ```bash
 docker compose up -d --build
 ```
-
-Le serveur écoute sur `127.0.0.1:8000` (pas exposé publiquement).
 
 ---
 
