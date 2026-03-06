@@ -87,7 +87,7 @@
 
     </section>
 
-    <!-- COLONNE TRADING : Notion STM -->
+    <!-- COLONNE TRADING : Notion STM + IBKR -->
     <section class="panel panel-trading">
       <div class="panel-header">
         <h2>Trading</h2>
@@ -95,7 +95,9 @@
           <button class="trade-tab active" data-tab="open" onclick="switchTradeTab('open')">Live</button>
           <button class="trade-tab" data-tab="recent" onclick="switchTradeTab('recent')">Récent</button>
           <button class="trade-tab" data-tab="watchlist" onclick="switchTradeTab('watchlist')">Watch</button>
+          <button class="trade-tab" data-tab="ibkr" onclick="switchTradeTab('ibkr')">IBKR</button>
         </div>
+        <button class="btn-icon ibkr-sync-btn" id="ibkrSyncBtn" onclick="syncIbkr()" title="Synchroniser IBKR" style="display:none">↻</button>
       </div>
       <div id="tradingContent"></div>
     </section>
