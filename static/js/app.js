@@ -14,6 +14,7 @@ let editingTaskId = null;
 // Calendar state
 let calYear  = new Date().getFullYear();
 let calMonth = new Date().getMonth();
+let selectedDate = today();
 
 // ---------------------------------------------------------------------------
 // Utils
@@ -289,15 +290,21 @@ async function loadEvents() {
 
 function renderAgendaDay() {
   const timeline = $('agendaTimeline');
-  const todayStr = today();
-  const todayEvents = allEvents.filter(e => e.start_datetime.startsWith(todayStr));
+  const titleEl  = $('agendaTitle');
+  const dayEvents = allEvents.filter(e => e.start_datetime.startsWith(selectedDate));
 
-  if (!todayEvents.length) {
-    timeline.innerHTML = '<div class="agenda-empty">Aucun événement aujourd\'hui</div>';
+  if (titleEl) {
+    const isToday = selectedDate === today();
+    const label = isToday ? "Agenda du jour" : new Date(selectedDate + 'T00:00:00').toLocaleDateString('fr-FR', { weekday: 'long', day: 'numeric', month: 'long' });
+    titleEl.textContent = label;
+  }
+
+  if (!dayEvents.length) {
+    timeline.innerHTML = `<div class="agenda-empty">Aucun événement</div>`;
     return;
   }
 
-  timeline.innerHTML = todayEvents.map(e => {
+  timeline.innerHTML = dayEvents.map(e => {
     const deleteBtn = e.source === 'google'
       ? ''
       : `<button class="event-delete" onclick="deleteEvent(${e.id})">✕</button>`;
@@ -386,7 +393,8 @@ function renderMiniCalendar() {
     const isToday   = dateStr === todayStr;
     const hasLocal  = localEventDays.has(dateStr);
     const hasGoogle = googleEventDays.has(dateStr);
-    const classes   = ['cal-day', isToday ? 'today' : '', hasLocal ? 'has-event' : '', hasGoogle ? 'has-google-event' : ''].filter(Boolean).join(' ');
+    const isSelected = dateStr === selectedDate && dateStr !== todayStr;
+    const classes   = ['cal-day', isToday ? 'today' : '', isSelected ? 'selected' : '', hasLocal ? 'has-event' : '', hasGoogle ? 'has-google-event' : ''].filter(Boolean).join(' ');
     html += `<div class="${classes}" onclick="calDayClick('${dateStr}')">${d}</div>`;
   }
 
@@ -409,9 +417,22 @@ function calNav(dir) {
 }
 
 function calDayClick(dateStr) {
-  // Pre-fill event modal with clicked date
-  $('eventStart').value = dateStr + 'T09:00';
+  selectedDate = dateStr;
+  renderMiniCalendar();
+  renderAgendaDay();
+}
+
+function openEventModalForSelected() {
+  $('eventStart').value = selectedDate + 'T09:00';
   openModal('eventModal');
+}
+
+function calGoToday() {
+  selectedDate = today();
+  calYear  = new Date().getFullYear();
+  calMonth = new Date().getMonth();
+  renderMiniCalendar();
+  renderAgendaDay();
 }
 
 // ---------------------------------------------------------------------------
