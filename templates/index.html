@@ -10,6 +10,8 @@
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
   <meta name="apple-mobile-web-app-title" content="Dashboard" />
   <meta name="theme-color" content="#0d0f14" />
+  <link rel="icon" href="/static/icons/stone-island.svg" type="image/svg+xml" />
+  <link rel="icon" href="/static/icons/icon-192.png" sizes="192x192" />
   <link rel="apple-touch-icon" href="/static/icons/icon-192.png" />
   <link rel="stylesheet" href="/static/css/style.css" />
   <link rel="preconnect" href="https://fonts.googleapis.com" />
@@ -28,6 +30,10 @@
     </div>
     <div class="header-right">
       <div class="summary-chips" id="summaryChips"></div>
+      <a href="/mission-control/" class="tg-btn" title="Mission Control" style="text-decoration:none">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-1 14H9V8h2v8zm4 0h-2V8h2v8z"/></svg>
+        <span>Mission Control</span>
+      </a>
       <button class="tg-btn" id="tgBtn" onclick="sendTelegramDigest()" title="Envoyer le résumé sur Telegram">
         <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="M12 0C5.373 0 0 5.373 0 12s5.373 12 12 12 12-5.373 12-12S18.627 0 12 0zm5.562 8.248-1.97 9.289c-.145.658-.537.818-1.084.508l-3-2.21-1.447 1.394c-.16.16-.295.295-.605.295l.213-3.053 5.56-5.023c.242-.213-.054-.333-.373-.12L7.248 14.79l-2.95-.924c-.642-.2-.654-.642.135-.953l11.57-4.461c.537-.194 1.006.131.559.796z"/></svg>
         <span id="tgBtnLabel">Digest</span>
@@ -50,7 +56,6 @@
           <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><path d="M19 3h-1V1h-2v2H8V1H6v2H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2zm0 16H5V8h14v11zM7 10h5v5H7z"/></svg>
           <span id="gcalStatusLabel">Connecter</span>
         </a>
-        <button class="btn-icon" onclick="openModal('eventModal')">+</button>
       </div>
 
       <!-- Mini calendrier -->

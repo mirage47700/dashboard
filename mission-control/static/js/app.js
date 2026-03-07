@@ -38,7 +38,7 @@ updateClock();
 // ---------------------------------------------------------------------------
 // Tabs
 // ---------------------------------------------------------------------------
-const TABS = ['board','calendar','projects','memories','docs','team','office'];
+const TABS = ['board','calendar','ibkr','projects','memories','docs','team','office'];
 let currentTab = 'board';
 
 function switchTab(tab) {
@@ -48,6 +48,7 @@ function switchTab(tab) {
   });
   currentTab = tab;
   if (tab === 'calendar')  loadCalendar();
+  if (tab === 'ibkr')      loadIbkr();
   if (tab === 'projects')  loadProjects();
   if (tab === 'memories')  loadMemories();
   if (tab === 'docs')      loadDocs();
@@ -61,7 +62,7 @@ function switchTab(tab) {
 let activityItems = [];
 
 function initSSE() {
-  const es = new EventSource('/events');
+  const es = new EventSource('/mission-control/events');
   es.onmessage = e => {
     try { handleEvent(JSON.parse(e.data)); } catch (_) {}
   };
@@ -95,7 +96,7 @@ function updateHeartbeatUI(data) {
 // ---------------------------------------------------------------------------
 async function pollHeartbeat() {
   try {
-    const rows = await api('/api/heartbeat');
+    const rows = await api('/mission-control/api/heartbeat');
     if (rows.length) {
       const latest = rows.sort((a,b) => b.last_beat.localeCompare(a.last_beat))[0];
       updateHeartbeatUI({ agent: latest.agent, timestamp: latest.last_beat });
@@ -112,7 +113,7 @@ let draggedId = null;
 async function loadBoard() {
   const agent = $('boardAgentFilter')?.value || '';
   const params = agent ? `?assigned_to=${encodeURIComponent(agent)}` : '';
-  try { allTasks = await api(`/api/tasks${params}`); } catch(_) { allTasks = []; }
+  try { allTasks = await api(`/mission-control/api/tasks${params}`); } catch(_) { allTasks = []; }
   renderBoard();
   await loadActivity();
 }
@@ -155,7 +156,7 @@ async function dropTask(event, newStatus) {
   event.preventDefault();
   if (!draggedId) return;
   try {
-    await api(`/api/tasks/${draggedId}/status`, 'PATCH', { status: newStatus });
+    await api(`/mission-control/api/tasks/${draggedId}/status`, 'PATCH', { status: newStatus });
     await loadBoard();
   } catch(_) {}
   draggedId = null;
@@ -165,7 +166,7 @@ async function dropTask(event, newStatus) {
 // ACTIVITY
 // ---------------------------------------------------------------------------
 async function loadActivity() {
-  try { activityItems = await api('/api/activity?limit=30'); } catch(_) { activityItems = []; }
+  try { activityItems = await api('/mission-control/api/activity?limit=30'); } catch(_) { activityItems = []; }
   renderActivity();
 }
 
@@ -192,35 +193,296 @@ function prependActivity(item) {
 }
 
 // ---------------------------------------------------------------------------
-// CALENDAR
+// HEADER METRICS
 // ---------------------------------------------------------------------------
-async function loadCalendar() {
-  const container = $('cronContainer');
-  if (!container) return;
+async function loadHeaderMetrics() {
   try {
-    const jobs = await api('/api/cron');
-    if (!jobs.length) {
-      container.innerHTML = '<div class="cron-empty">Aucun cron job trouve (crontab vide)</div>';
-      return;
+    const [usage, perf] = await Promise.all([
+      api('/api/usage').catch(() => null),
+      api('/api/ibkr/perf').catch(() => null),
+    ]);
+    const orEl = $('metricOR');
+    if (orEl && usage?.openrouter?.connected) {
+      const rem = usage.openrouter.remaining_credits ?? 0;
+      orEl.textContent = `OR $${rem.toFixed(2)}`;
+      orEl.className = 'mc-metric';
     }
-    container.innerHTML = `
-      <table class="cron-table">
-        <thead><tr><th>Schedule</th><th>Description</th><th>Commande</th></tr></thead>
-        <tbody>${jobs.map(j => `
-          <tr>
-            <td>
-              <div>${escHtml(j.schedule)}</div>
-              ${j.human ? `<div class="cron-human">${escHtml(j.human)}</div>` : ''}
-            </td>
-            <td>${escHtml(j.human || '—')}</td>
-            <td><code style="font-size:11px;color:#a0aec0">${escHtml(j.command)}</code></td>
-          </tr>
-        `).join('')}</tbody>
-      </table>
-    `;
-  } catch(_) {
-    container.innerHTML = '<div class="cron-empty">Erreur de lecture crontab</div>';
+    const pnlEl = $('metricPnl');
+    if (pnlEl && perf?.ytd) {
+      const pnl = perf.ytd.pnl_net ?? 0;
+      pnlEl.textContent = `YTD ${pnl >= 0 ? '+' : ''}$${pnl.toFixed(0)}`;
+      pnlEl.className = `mc-metric ${pnl >= 0 ? 'pos' : 'neg'}`;
+    }
+  } catch(_) {}
+}
+
+// ---------------------------------------------------------------------------
+// CALENDAR / AGENDA  (same as main dashboard)
+// ---------------------------------------------------------------------------
+const mcToday = () => new Date().toISOString().split('T')[0];
+let allEvents    = [];
+let selectedDate = mcToday();
+let selectedEventColor = 'blue';
+
+// calYear/calMonth already declared globally at top if needed — declare here
+let calYear  = new Date().getFullYear();
+let calMonth = new Date().getMonth();
+
+async function loadCalendar() {
+  const [localEvents, googleEvents] = await Promise.all([
+    api('/api/events').catch(() => []),
+    api('/api/events/google').catch(() => []),
+  ]);
+  allEvents = [...localEvents, ...googleEvents].sort(
+    (a, b) => new Date(a.start_datetime) - new Date(b.start_datetime)
+  );
+  // Google Calendar status button
+  const status = await api('/api/google/status').catch(() => ({ connected: false }));
+  const btn   = $('gcalStatusBtn');
+  const label = $('gcalStatusLabel');
+  if (btn) {
+    if (status.connected) {
+      btn.classList.add('gcal-connected');
+      if (label) label.textContent = 'Connecté';
+    } else {
+      btn.classList.remove('gcal-connected');
+      if (label) label.textContent = 'Connecter';
+    }
   }
+  renderAgendaDay();
+  renderMiniCalendar();
+}
+
+function renderAgendaDay() {
+  const timeline = $('agendaTimeline');
+  const titleEl  = $('agendaTitle');
+  const dayEvents = allEvents.filter(e => e.start_datetime.startsWith(selectedDate));
+
+  if (titleEl) {
+    const isToday = selectedDate === mcToday();
+    titleEl.textContent = isToday
+      ? 'Agenda du jour'
+      : new Date(selectedDate + 'T00:00:00').toLocaleDateString('fr-FR', { weekday: 'long', day: 'numeric', month: 'long' });
+  }
+
+  if (!dayEvents.length) {
+    timeline.innerHTML = '<div class="agenda-empty">Aucun événement</div>';
+    return;
+  }
+  timeline.innerHTML = dayEvents.map(e => {
+    const deleteBtn = e.source === 'google'
+      ? '' : `<button class="event-delete" onclick="deleteMcEvent(${e.id})">✕</button>`;
+    return `
+    <div class="agenda-event color-${e.color || 'blue'}">
+      <div class="event-time">${fmtTime(e.start_datetime)}</div>
+      <div>
+        <div class="event-title">${escHtml(e.title)}</div>
+        ${e.description ? `<div class="event-desc">${escHtml(e.description)}</div>` : ''}
+      </div>
+      ${deleteBtn}
+    </div>`;
+  }).join('');
+}
+
+function renderMiniCalendar() {
+  const container = $('miniCalendar');
+  if (!container) return;
+  const todayStr = mcToday();
+  const localEventDays  = new Set(allEvents.filter(e => e.source !== 'google').map(e => e.start_datetime.split('T')[0]));
+  const googleEventDays = new Set(allEvents.filter(e => e.source === 'google').map(e => e.start_datetime.split('T')[0]));
+
+  const firstDay = new Date(calYear, calMonth, 1);
+  const lastDay  = new Date(calYear, calMonth + 1, 0);
+  const startDow = (firstDay.getDay() + 6) % 7;
+  const monthName = firstDay.toLocaleDateString('fr-FR', { month: 'long', year: 'numeric' });
+
+  let html = `
+    <div class="cal-header">
+      <button class="cal-nav" onclick="calNav(-1)">‹</button>
+      <span class="cal-title">${monthName}</span>
+      <button class="cal-nav" onclick="calNav(1)">›</button>
+    </div>
+    <div class="cal-grid">
+      <div class="cal-day-name">Lu</div><div class="cal-day-name">Ma</div>
+      <div class="cal-day-name">Me</div><div class="cal-day-name">Je</div>
+      <div class="cal-day-name">Ve</div><div class="cal-day-name">Sa</div>
+      <div class="cal-day-name">Di</div>`;
+
+  for (let i = 0; i < startDow; i++) {
+    const prev = new Date(calYear, calMonth, -startDow + i + 1);
+    html += `<div class="cal-day other-month">${prev.getDate()}</div>`;
+  }
+  for (let d = 1; d <= lastDay.getDate(); d++) {
+    const dateStr = `${calYear}-${String(calMonth+1).padStart(2,'0')}-${String(d).padStart(2,'0')}`;
+    const isToday    = dateStr === todayStr;
+    const isSelected = dateStr === selectedDate && dateStr !== todayStr;
+    const hasLocal   = localEventDays.has(dateStr);
+    const hasGoogle  = googleEventDays.has(dateStr);
+    const cls = ['cal-day', isToday ? 'today' : '', isSelected ? 'selected' : '',
+      hasLocal ? 'has-event' : '', hasGoogle ? 'has-google-event' : ''].filter(Boolean).join(' ');
+    html += `<div class="${cls}" onclick="calDayClick('${dateStr}')">${d}</div>`;
+  }
+  const totalCells = startDow + lastDay.getDate();
+  const remainder  = totalCells % 7 === 0 ? 0 : 7 - (totalCells % 7);
+  for (let i = 1; i <= remainder; i++) html += `<div class="cal-day other-month">${i}</div>`;
+  html += '</div>';
+  container.innerHTML = html;
+}
+
+function calNav(dir) {
+  calMonth += dir;
+  if (calMonth > 11) { calMonth = 0; calYear++; }
+  if (calMonth < 0)  { calMonth = 11; calYear--; }
+  renderMiniCalendar();
+}
+
+function calDayClick(dateStr) {
+  selectedDate = dateStr;
+  renderMiniCalendar();
+  renderAgendaDay();
+}
+
+function calGoToday() {
+  selectedDate = mcToday();
+  calYear  = new Date().getFullYear();
+  calMonth = new Date().getMonth();
+  renderMiniCalendar();
+  renderAgendaDay();
+}
+
+function openMcEventModal() {
+  $('mcEventStart').value = selectedDate + 'T09:00';
+  $('mcEventTitle').value = '';
+  $('mcEventDesc').value = '';
+  $('mcEventModal').classList.remove('hidden');
+}
+
+function selectEventColor(btn, color) {
+  selectedEventColor = color;
+  $('mcColorPicker').querySelectorAll('.color-dot').forEach(b => b.classList.remove('active'));
+  btn.classList.add('active');
+}
+
+async function saveMcEvent() {
+  const title = $('mcEventTitle').value.trim();
+  const start = $('mcEventStart').value;
+  if (!title || !start) return;
+  try {
+    await api('/api/events', 'POST', {
+      title,
+      description: $('mcEventDesc').value.trim(),
+      start_datetime: start,
+      end_datetime: $('mcEventEnd').value || null,
+      color: selectedEventColor,
+    });
+    closeModal('mcEventModal');
+    await loadCalendar();
+  } catch(e) { alert('Erreur: ' + e.message); }
+}
+
+async function deleteMcEvent(id) {
+  if (!confirm('Supprimer cet événement ?')) return;
+  await api(`/api/events/${id}`, 'DELETE');
+  await loadCalendar();
+}
+
+// ---------------------------------------------------------------------------
+// IBKR
+// ---------------------------------------------------------------------------
+let ibkrPerf   = null;
+let ibkrTrades = [];
+
+async function loadIbkr() {
+  try {
+    [ibkrPerf, ibkrTrades] = await Promise.all([
+      api('/api/ibkr/perf').catch(() => null),
+      api('/api/ibkr/trades?limit=500').catch(() => []),
+    ]);
+  } catch(_) {}
+  renderIbkrStats();
+  renderIbkrMonthly();
+  populateIbkrMonthFilter();
+  renderIbkrTrades();
+}
+
+function renderIbkrStats() {
+  const el = $('ibkrStats');
+  if (!el) return;
+  if (!ibkrPerf?.ytd) {
+    el.innerHTML = '<div class="ibkr-empty">Aucune donnée IBKR. Configurez IBKR_FLEX_TOKEN et IBKR_FLEX_QUERY_ID.</div>';
+    return;
+  }
+  const y = ibkrPerf.ytd;
+  el.innerHTML = `
+    <div class="ibkr-stat"><div class="ibkr-stat-label">PnL brut YTD</div><div class="ibkr-stat-val ${y.pnl >= 0 ? 'pos' : 'neg'}">${y.pnl >= 0 ? '+' : ''}$${y.pnl.toFixed(2)}</div></div>
+    <div class="ibkr-stat"><div class="ibkr-stat-label">PnL net YTD</div><div class="ibkr-stat-val ${y.pnl_net >= 0 ? 'pos' : 'neg'}">${y.pnl_net >= 0 ? '+' : ''}$${y.pnl_net.toFixed(2)}</div></div>
+    <div class="ibkr-stat"><div class="ibkr-stat-label">Commissions</div><div class="ibkr-stat-val neg">-$${Math.abs(y.commission).toFixed(2)}</div></div>
+    <div class="ibkr-stat"><div class="ibkr-stat-label">Trades</div><div class="ibkr-stat-val">${y.trades}</div></div>
+    <div class="ibkr-stat"><div class="ibkr-stat-label">Win rate</div><div class="ibkr-stat-val ${y.win_rate >= 50 ? 'pos' : 'neg'}">${y.win_rate.toFixed(1)}%</div></div>
+    <div class="ibkr-stat"><div class="ibkr-stat-label">Dernière sync</div><div class="ibkr-stat-val" style="font-size:11px">${ibkrPerf.last_sync ? fmtRelative(ibkrPerf.last_sync) : '—'}</div></div>
+  `;
+}
+
+function renderIbkrMonthly() {
+  const el = $('ibkrMonthly');
+  if (!el) return;
+  if (!ibkrPerf?.monthly?.length) { el.innerHTML = ''; return; }
+  el.innerHTML = `
+    <table class="ibkr-table">
+      <thead><tr><th>Mois</th><th>PnL brut</th><th>PnL net</th><th>Commission</th><th>Trades</th><th>Win %</th></tr></thead>
+      <tbody>${ibkrPerf.monthly.map(m => `
+        <tr>
+          <td>${m.month}</td>
+          <td class="${m.pnl >= 0 ? 'pos' : 'neg'}">${m.pnl >= 0 ? '+' : ''}$${m.pnl.toFixed(2)}</td>
+          <td class="${m.pnl_net >= 0 ? 'pos' : 'neg'}">${m.pnl_net >= 0 ? '+' : ''}$${m.pnl_net.toFixed(2)}</td>
+          <td class="neg">-$${Math.abs(m.commission).toFixed(2)}</td>
+          <td>${m.trades}</td>
+          <td class="${m.win_rate >= 50 ? 'pos' : 'neg'}">${m.win_rate.toFixed(1)}%</td>
+        </tr>
+      `).join('')}</tbody>
+    </table>
+  `;
+}
+
+function populateIbkrMonthFilter() {
+  const sel = $('ibkrMonthFilter');
+  if (!sel) return;
+  const months = [...new Set(ibkrTrades.map(t => (t.trade_date || '').substring(0, 7)).filter(Boolean))].sort().reverse();
+  sel.innerHTML = '<option value="">Tous les mois</option>' + months.map(m => `<option value="${m}">${m}</option>`).join('');
+}
+
+function renderIbkrTrades() {
+  const el = $('ibkrTradesTable');
+  if (!el) return;
+  const filter = $('ibkrMonthFilter')?.value || '';
+  const trades = filter ? ibkrTrades.filter(t => (t.trade_date || '').startsWith(filter)) : ibkrTrades;
+  if (!trades.length) { el.innerHTML = '<div class="ibkr-empty">Aucun trade</div>'; return; }
+  el.innerHTML = `
+    <table class="ibkr-table">
+      <thead><tr><th>Date</th><th>Symbole</th><th>B/S</th><th>Qté</th><th>Prix</th><th>Produit</th><th>PnL</th><th>Commission</th></tr></thead>
+      <tbody>${trades.slice(0, 200).map(t => `
+        <tr>
+          <td class="muted">${t.trade_date || '—'}</td>
+          <td style="font-weight:500">${escHtml(t.symbol)}</td>
+          <td class="${t.buy_sell === 'BUY' ? 'pos' : 'neg'}">${t.buy_sell}</td>
+          <td>${t.quantity}</td>
+          <td>$${parseFloat(t.price || 0).toFixed(2)}</td>
+          <td>$${parseFloat(t.proceeds || 0).toFixed(2)}</td>
+          <td class="${(t.pnl || 0) >= 0 ? 'pos' : 'neg'}">${(t.pnl || 0) !== 0 ? ((t.pnl >= 0 ? '+' : '') + '$' + (t.pnl || 0).toFixed(2)) : '—'}</td>
+          <td class="neg">-$${Math.abs(t.commission || 0).toFixed(2)}</td>
+        </tr>
+      `).join('')}</tbody>
+    </table>
+  `;
+}
+
+async function syncIbkr(btn) {
+  if (btn) { btn.disabled = true; btn.textContent = '...'; }
+  try {
+    await api('/api/ibkr/sync', 'POST');
+    await Promise.all([loadIbkr(), loadHeaderMetrics()]);
+  } catch(e) { alert('Erreur sync: ' + e.message); }
+  if (btn) { btn.disabled = false; btn.textContent = '↻ Sync'; }
 }
 
 // ---------------------------------------------------------------------------
@@ -229,7 +491,7 @@ async function loadCalendar() {
 let allProjects = [];
 
 async function loadProjects() {
-  try { allProjects = await api('/api/projects'); } catch(_) { allProjects = []; }
+  try { allProjects = await api('/mission-control/api/projects'); } catch(_) { allProjects = []; }
   renderProjects();
 }
 
@@ -268,7 +530,7 @@ async function loadMemories() {
   if (!el) return;
   el.innerHTML = '<div style="color:#64748b;padding:20px">Chargement...</div>';
   try {
-    const days = await api('/api/memories');
+    const days = await api('/mission-control/api/memories');
     if (!days.length) {
       el.innerHTML = '<div style="color:#64748b;padding:40px;text-align:center">Aucune memoire trouvee dans memories.md</div>';
       return;
@@ -292,7 +554,7 @@ async function loadMemories() {
 let allDocs = [];
 
 async function loadDocs() {
-  try { allDocs = await api('/api/docs'); } catch(_) { allDocs = []; }
+  try { allDocs = await api('/mission-control/api/docs'); } catch(_) { allDocs = []; }
   renderDocs(allDocs);
 }
 
@@ -331,7 +593,7 @@ function renderDocs(docs) {
 let allMembers = [];
 
 async function loadTeam() {
-  try { allMembers = await api('/api/team'); } catch(_) { allMembers = []; }
+  try { allMembers = await api('/mission-control/api/team'); } catch(_) { allMembers = []; }
   renderTeam();
 }
 
@@ -451,8 +713,8 @@ async function saveTask() {
   };
   if (!body.title) return;
   try {
-    if (editTaskId) await api(`/api/tasks/${editTaskId}`, 'PUT', body);
-    else            await api('/api/tasks', 'POST', body);
+    if (editTaskId) await api(`/mission-control/api/tasks/${editTaskId}`, 'PUT', body);
+    else            await api('/mission-control/api/tasks', 'POST', body);
     closeModal('taskModal');
     await loadBoard();
   } catch(e) { alert('Erreur: ' + e.message); }
@@ -461,7 +723,7 @@ async function saveTask() {
 async function deleteTask() {
   if (!editTaskId || !confirm('Supprimer cette tache ?')) return;
   try {
-    await api(`/api/tasks/${editTaskId}`, 'DELETE');
+    await api(`/mission-control/api/tasks/${editTaskId}`, 'DELETE');
     closeModal('taskModal');
     await loadBoard();
   } catch(e) { alert('Erreur: ' + e.message); }
@@ -503,8 +765,8 @@ async function saveProject() {
   };
   if (!body.name) return;
   try {
-    if (editProjectId) await api(`/api/projects/${editProjectId}`, 'PUT', body);
-    else               await api('/api/projects', 'POST', body);
+    if (editProjectId) await api(`/mission-control/api/projects/${editProjectId}`, 'PUT', body);
+    else               await api('/mission-control/api/projects', 'POST', body);
     closeModal('projectModal');
     await loadProjects();
   } catch(e) { alert('Erreur: ' + e.message); }
@@ -545,8 +807,8 @@ async function saveDoc() {
   };
   if (!body.title) return;
   try {
-    if (editDocId) await api(`/api/docs/${editDocId}`, 'PUT', body);
-    else           await api('/api/docs', 'POST', body);
+    if (editDocId) await api(`/mission-control/api/docs/${editDocId}`, 'PUT', body);
+    else           await api('/mission-control/api/docs', 'POST', body);
     closeModal('docModal');
     await loadDocs();
   } catch(e) { alert('Erreur: ' + e.message); }
@@ -555,7 +817,7 @@ async function saveDoc() {
 async function deleteDoc() {
   if (!editDocId || !confirm('Supprimer ce document ?')) return;
   try {
-    await api(`/api/docs/${editDocId}`, 'DELETE');
+    await api(`/mission-control/api/docs/${editDocId}`, 'DELETE');
     closeModal('docModal');
     await loadDocs();
   } catch(e) { alert('Erreur: ' + e.message); }
@@ -614,8 +876,8 @@ async function saveMember() {
   };
   if (!body.name) return;
   try {
-    if (editMemberId) await api(`/api/team/${editMemberId}`, 'PUT', body);
-    else              await api('/api/team', 'POST', body);
+    if (editMemberId) await api(`/mission-control/api/team/${editMemberId}`, 'PUT', body);
+    else              await api('/mission-control/api/team', 'POST', body);
     closeModal('teamModal');
     await loadTeam();
     renderOffice();
@@ -625,7 +887,7 @@ async function saveMember() {
 async function deleteMember() {
   if (!editMemberId || !confirm('Supprimer cet agent ?')) return;
   try {
-    await api(`/api/team/${editMemberId}`, 'DELETE');
+    await api(`/mission-control/api/team/${editMemberId}`, 'DELETE');
     closeModal('teamModal');
     await loadTeam();
     renderOffice();
@@ -651,6 +913,8 @@ document.addEventListener('click', e => {
 // ---------------------------------------------------------------------------
 async function init() {
   await Promise.all([loadBoard(), loadProjects(), loadTeam()]);
+  loadHeaderMetrics();
+  setInterval(loadHeaderMetrics, 120000);
   pollHeartbeat();
   setInterval(pollHeartbeat, 30000);
   initSSE();
