@@ -559,12 +559,19 @@ function switchTradeTab(tab) {
   tradeTab = tab;
   document.querySelectorAll('.trade-tab').forEach(b => b.classList.remove('active'));
   document.querySelector(`.trade-tab[data-tab="${tab}"]`)?.classList.add('active');
+  const syncBtn = $('ibkrSyncBtn');
+  if (syncBtn) syncBtn.style.display = tab === 'ibkr' ? '' : 'none';
   renderTrading();
 }
 
 function renderTrading() {
   const el = $('tradingContent');
   if (!el) return;
+
+  if (tradeTab === 'ibkr') {
+    renderIbkr();
+    return;
+  }
 
   if (tradeTab === 'watchlist') {
     if (!allWatchlist.length) {
@@ -617,6 +624,209 @@ function renderTrading() {
         </div>
       </a>`;
   }).join('');
+}
+
+// ---------------------------------------------------------------------------
+// IBKR
+// ---------------------------------------------------------------------------
+let ibkrPerf = null;
+let ibkrExpandedMonth = null;
+let ibkrMonthTrades = {};
+
+async function loadIbkr() {
+  try {
+    ibkrPerf = await api('/api/ibkr/perf');
+  } catch(e) { ibkrPerf = null; }
+  renderIbkrChip();
+  renderIbkrTable();
+}
+
+async function syncIbkr() {
+  const btns = [$('ibkrSyncBtn'), $('ibkrSyncBtnTable')].filter(Boolean);
+  btns.forEach(b => { b.disabled = true; b.textContent = '…'; });
+  try {
+    const res = await api('/api/ibkr/sync', 'POST', {});
+    toast(`IBKR: ${res.fetched} trades (${res.inserted} nouveaux)`, 'success');
+    ibkrMonthTrades = {};
+    await loadIbkr();
+    if (tradeTab === 'ibkr') renderTrading();
+  } catch(e) {
+    toast('Erreur sync IBKR', 'error');
+  } finally {
+    btns.forEach(b => { b.disabled = false; b.textContent = '↻'; });
+  }
+}
+
+function renderIbkrChip() {
+  const chips = $('summaryChips');
+  if (!chips) return;
+  const old = chips.querySelector('.chip-ibkr');
+  if (old) old.remove();
+  if (!ibkrPerf || !ibkrPerf.ytd) return;
+  const ytd = ibkrPerf.ytd;
+  if (!ytd.trades) return;
+  const net = ytd.pnl_net;
+  const sign = net >= 0 ? '+' : '';
+  const cls  = net >= 0 ? 'chip-success' : 'chip-danger';
+  const chip = document.createElement('div');
+  chip.className = `chip ${cls} chip-ibkr`;
+  chip.innerHTML = `YTD <strong>${sign}$${Math.abs(net).toFixed(0)}</strong> · ${ytd.win_rate}%`;
+  chips.prepend(chip);
+}
+
+function renderIbkrTable() {
+  const container = $('ibkrTableContainer');
+  const syncLabel = $('ibkrSectionSync');
+  if (!container) return;
+
+  if (!ibkrPerf) {
+    container.innerHTML = '<div class="ibkr-tbl-empty">Aucune donnée — cliquez ↻ pour synchroniser</div>';
+    if (syncLabel) syncLabel.textContent = '';
+    return;
+  }
+
+  if (syncLabel && ibkrPerf.last_sync) {
+    syncLabel.textContent = 'Sync: ' + new Date(ibkrPerf.last_sync)
+      .toLocaleDateString('fr-FR', { day:'2-digit', month:'short', hour:'2-digit', minute:'2-digit' });
+  }
+
+  if (!ibkrPerf.monthly.length) {
+    container.innerHTML = '<div class="ibkr-tbl-empty">Aucun trade enregistré</div>';
+    return;
+  }
+
+  let html = `<table class="ibkr-tbl">
+    <thead>
+      <tr>
+        <th>Mois</th><th class="num">Trades</th><th class="num">Win%</th>
+        <th class="num">PnL brut</th><th class="num">Comm</th><th class="num">PnL net</th>
+      </tr>
+    </thead>
+    <tbody>`;
+
+  for (const m of ibkrPerf.monthly) {
+    const netCls = m.pnl_net >= 0 ? 'pos' : 'neg';
+    const netSign = m.pnl_net >= 0 ? '+' : '';
+    const brutSign = m.pnl >= 0 ? '+' : '';
+    const brutCls = m.pnl >= 0 ? 'pos' : 'neg';
+    const [yr, mo] = m.month.split('-');
+    const label = new Date(Number(yr), Number(mo) - 1, 1)
+      .toLocaleDateString('fr-FR', { month: 'long', year: 'numeric' });
+    const isOpen = ibkrExpandedMonth === m.month;
+
+    html += `<tr class="ibkr-tbl-month ${isOpen ? 'open' : ''}" onclick="toggleIbkrMonth('${m.month}')">
+      <td class="ibkr-tbl-month-name"><span class="ibkr-tbl-chevron">${isOpen ? '▾' : '▸'}</span>${label}</td>
+      <td class="num">${m.trades}</td>
+      <td class="num">${m.win_rate}%</td>
+      <td class="num ${brutCls}">${brutSign}$${Math.abs(m.pnl).toFixed(0)}</td>
+      <td class="num comm">-$${Math.abs(m.commission).toFixed(0)}</td>
+      <td class="num ${netCls} bold">${netSign}$${Math.abs(m.pnl_net).toFixed(0)}</td>
+    </tr>`;
+
+    if (isOpen) {
+      const trades = ibkrMonthTrades[m.month] || [];
+      if (!trades.length) {
+        html += `<tr class="ibkr-tbl-trades-row"><td colspan="6" class="ibkr-tbl-loading">Chargement…</td></tr>`;
+      } else {
+        html += `<tr class="ibkr-tbl-trades-row"><td colspan="6" style="padding:0">
+          <table class="ibkr-tbl-sub">
+            <thead><tr>
+              <th>Date</th><th>B/V</th><th>Symbole</th>
+              <th class="num">Qté</th><th class="num">Prix</th>
+              <th class="num">PnL réalisé</th><th class="num">Comm</th>
+            </tr></thead>
+            <tbody>`;
+        for (const t of trades) {
+          const tCls   = t.pnl > 0 ? 'pos' : t.pnl < 0 ? 'neg' : '';
+          const tSign  = t.pnl >= 0 ? '+' : '';
+          const bsCls  = t.buy_sell === 'BUY' ? 'buy' : 'sell';
+          html += `<tr>
+            <td>${t.trade_date || '—'}</td>
+            <td><span class="ibkr-trade-bs ${bsCls}">${t.buy_sell === 'BUY' ? 'Achat' : 'Vente'}</span></td>
+            <td class="bold">${escHtml(t.symbol || '—')}</td>
+            <td class="num">${t.quantity}</td>
+            <td class="num">$${t.price.toFixed(2)}</td>
+            <td class="num ${tCls}">${t.pnl !== 0 ? `${tSign}$${Math.abs(t.pnl).toFixed(2)}` : '—'}</td>
+            <td class="num comm">-$${Math.abs(t.commission).toFixed(2)}</td>
+          </tr>`;
+        }
+        html += `</tbody></table></td></tr>`;
+      }
+    }
+  }
+
+  html += '</tbody></table>';
+  container.innerHTML = html;
+}
+
+async function toggleIbkrMonth(month) {
+  if (ibkrExpandedMonth === month) {
+    ibkrExpandedMonth = null;
+    renderIbkrTable();
+    return;
+  }
+  ibkrExpandedMonth = month;
+  renderIbkrTable(); // show loading state immediately
+  if (!ibkrMonthTrades[month]) {
+    try {
+      ibkrMonthTrades[month] = await api(`/api/ibkr/trades?month=${month}&limit=100`);
+    } catch(e) { ibkrMonthTrades[month] = []; }
+  }
+  renderIbkrTable();
+}
+
+function fmtPnl(val, currency) {
+  if (val === null || val === undefined) return '—';
+  const sign = val >= 0 ? '+' : '';
+  const sym = currency === 'EUR' ? '€' : '$';
+  return `${sign}${sym}${Math.abs(val).toFixed(0)}`;
+}
+
+function renderIbkr() {
+  const el = $('tradingContent');
+  if (!ibkrPerf || !ibkrPerf.ytd) {
+    el.innerHTML = '<div class="trading-empty">Données IBKR non disponibles<br><small>Cliquez ↻ pour synchro</small></div>';
+    return;
+  }
+  const ytd = ibkrPerf.ytd;
+  const pnlClass = ytd.pnl_net >= 0 ? 'pos' : 'neg';
+  const pnlSign  = ytd.pnl_net >= 0 ? '+' : '';
+  const lastSync = ibkrPerf.last_sync
+    ? new Date(ibkrPerf.last_sync).toLocaleDateString('fr-FR', { day:'2-digit', month:'short', hour:'2-digit', minute:'2-digit' })
+    : 'jamais';
+
+  // Current month quick view
+  const curMonth = new Date().toISOString().slice(0, 7);
+  const cm = ibkrPerf.monthly.find(m => m.month === curMonth);
+  const cmHtml = cm ? (() => {
+    const s = cm.pnl_net >= 0 ? '+' : '';
+    const c = cm.pnl_net >= 0 ? 'pos' : 'neg';
+    const [yr, mo] = cm.month.split('-');
+    const lbl = new Date(Number(yr), Number(mo)-1, 1).toLocaleDateString('fr-FR', { month: 'long' });
+    return `<div class="ibkr-cm">
+      <span class="ibkr-cm-label">${lbl}</span>
+      <span class="ibkr-cm-pnl ${c}">${s}$${Math.abs(cm.pnl_net).toFixed(0)}</span>
+      <span class="ibkr-cm-stats">${cm.trades}T · ${cm.win_rate}%</span>
+    </div>`;
+  })() : '';
+
+  el.innerHTML = `
+    <div class="ibkr-ytd">
+      <div class="ibkr-ytd-row">
+        <span class="ibkr-ytd-label">YTD net</span>
+        <span class="ibkr-ytd-pnl ${pnlClass}">${pnlSign}$${Math.abs(ytd.pnl_net).toFixed(0)}</span>
+      </div>
+      <div class="ibkr-ytd-stats">
+        <span>${ytd.trades} trades</span>
+        <span class="ibkr-sep">·</span>
+        <span>${ytd.win_rate}% win</span>
+        <span class="ibkr-sep">·</span>
+        <span class="ibkr-comm">-$${Math.abs(ytd.commission).toFixed(0)} comm</span>
+      </div>
+      <div class="ibkr-sync-ts">Sync: ${lastSync}</div>
+    </div>
+    ${cmHtml}
+    <div class="ibkr-tbl-hint">↓ Tableau complet en bas de page</div>`;
 }
 
 // ---------------------------------------------------------------------------
@@ -789,6 +999,8 @@ async function init() {
     loadEvents(),
     loadSummary(),
     loadTrading(),
+    loadIbkr(),
+    loadIbkrRaw(),
   ]);
 
   // Refresh summary every minute
@@ -798,6 +1010,68 @@ async function init() {
   checkGoogleStatus();
   checkTelegramStatus();
   loadUsage();
+}
+
+// ---------------------------------------------------------------------------
+// IBKR Raw trades table
+// ---------------------------------------------------------------------------
+let ibkrRawTrades = null;
+
+async function loadIbkrRaw() {
+  try {
+    ibkrRawTrades = await api('/api/ibkr/trades?limit=500');
+  } catch(e) { ibkrRawTrades = []; }
+  renderIbkrRaw();
+}
+
+function renderIbkrRaw() {
+  const container = $('ibkrRawTableContainer');
+  const countEl   = $('ibkrRawCount');
+  if (!container) return;
+
+  if (!ibkrRawTrades || !ibkrRawTrades.length) {
+    container.innerHTML = '<div class="ibkr-tbl-empty">Aucun trade enregistré</div>';
+    if (countEl) countEl.textContent = '';
+    return;
+  }
+
+  if (countEl) countEl.textContent = `${ibkrRawTrades.length} lignes`;
+
+  let html = `<table class="ibkr-tbl ibkr-raw-tbl">
+    <thead>
+      <tr>
+        <th>Date</th>
+        <th>Symbole</th>
+        <th>Catégorie</th>
+        <th>B/V</th>
+        <th class="num">Quantité</th>
+        <th class="num">Prix</th>
+        <th class="num">Produit</th>
+        <th class="num">Commission</th>
+        <th class="num">PnL réalisé</th>
+      </tr>
+    </thead>
+    <tbody>`;
+
+  for (const t of ibkrRawTrades) {
+    const pnlCls  = t.pnl > 0 ? 'pos' : t.pnl < 0 ? 'neg' : '';
+    const pnlSign = t.pnl >= 0 ? '+' : '';
+    const bsCls   = t.buy_sell === 'BUY' ? 'buy' : 'sell';
+    html += `<tr>
+      <td>${t.trade_date || '—'}</td>
+      <td class="bold">${escHtml(t.symbol || '—')}</td>
+      <td>${escHtml(t.asset_category || '—')}</td>
+      <td><span class="ibkr-trade-bs ${bsCls}">${t.buy_sell === 'BUY' ? 'Achat' : 'Vente'}</span></td>
+      <td class="num">${t.quantity != null ? t.quantity : '—'}</td>
+      <td class="num">${t.price != null ? '$' + t.price.toFixed(2) : '—'}</td>
+      <td class="num">${t.proceeds != null ? '$' + t.proceeds.toFixed(2) : '—'}</td>
+      <td class="num comm">${t.commission != null ? '-$' + Math.abs(t.commission).toFixed(2) : '—'}</td>
+      <td class="num ${pnlCls}">${t.pnl !== 0 && t.pnl != null ? `${pnlSign}$${Math.abs(t.pnl).toFixed(2)}` : '—'}</td>
+    </tr>`;
+  }
+
+  html += '</tbody></table>';
+  container.innerHTML = html;
 }
 
 init();

@@ -23,6 +23,8 @@ OPENROUTER_API_KEY   = os.getenv("OPENROUTER_API_KEY", "")
 GEMINI_API_KEY       = os.getenv("GEMINI_API_KEY", "")
 TELEGRAM_BOT_TOKEN   = os.getenv("TELEGRAM_BOT_TOKEN", "")
 TELEGRAM_CHAT_ID     = os.getenv("TELEGRAM_CHAT_ID", "")
+IBKR_FLEX_TOKEN      = os.getenv("IBKR_FLEX_TOKEN", "")
+IBKR_FLEX_QUERY_ID   = os.getenv("IBKR_FLEX_QUERY_ID", "")
 
 # Notion DB IDs
 NOTION_DB_STM       = "4f3b8c95-709b-465d-a2f3-be5dbdfce9bd"
@@ -114,6 +116,23 @@ def init_db():
             scraped_at TEXT DEFAULT (datetime('now')),
             UNIQUE(ex_date, symbol)
         );
+
+        CREATE TABLE IF NOT EXISTS ibkr_trades (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            trade_id TEXT UNIQUE,
+            symbol TEXT,
+            asset_category TEXT,
+            currency TEXT DEFAULT 'USD',
+            trade_date TEXT,
+            date_time TEXT,
+            buy_sell TEXT,
+            quantity REAL,
+            price REAL,
+            proceeds REAL,
+            commission REAL DEFAULT 0,
+            pnl REAL DEFAULT 0,
+            synced_at TEXT DEFAULT (datetime('now'))
+        );
     """)
     conn.commit()
     conn.close()
@@ -129,6 +148,8 @@ async def lifespan(app: FastAPI):
     init_db()
     if TELEGRAM_BOT_TOKEN and TELEGRAM_CHAT_ID:
         asyncio.create_task(_schedule_daily_digest())
+    if IBKR_FLEX_TOKEN and IBKR_FLEX_QUERY_ID:
+        asyncio.create_task(_schedule_ibkr_sync())
     yield
 
 
@@ -797,6 +818,270 @@ async def get_api_usage():
         out["gemini"] = {"connected": False, "missing_key": True}
 
     return out
+
+
+# ---------------------------------------------------------------------------
+# IBKR Flex Query helpers
+# ---------------------------------------------------------------------------
+
+async def _fetch_ibkr_trades() -> dict:
+    """Fetch trades from IBKR Flex Query and upsert into DB. Returns summary."""
+    import asyncio
+    import xml.etree.ElementTree as ET
+    import httpx
+
+    if not IBKR_FLEX_TOKEN or not IBKR_FLEX_QUERY_ID:
+        return {"error": "IBKR not configured"}
+
+    send_url = (
+        "https://gdcdyn.interactivebrokers.com/Universal/servlet/"
+        f"FlexStatementService.SendRequest?t={IBKR_FLEX_TOKEN}&q={IBKR_FLEX_QUERY_ID}&v=3"
+    )
+
+    async with httpx.AsyncClient(timeout=30) as client:
+        r = await client.get(send_url)
+
+    try:
+        root = ET.fromstring(r.text)
+    except ET.ParseError as e:
+        return {"error": f"XML parse error on SendRequest: {e}"}
+
+    status = root.findtext("Status")
+    if status != "Success":
+        err = root.findtext("ErrorMessage") or "Unknown error"
+        return {"error": f"IBKR SendRequest failed: {err}"}
+
+    ref_code = root.findtext("ReferenceCode")
+    get_url_base = (
+        root.findtext("Url")
+        or "https://gdcdyn.interactivebrokers.com/Universal/servlet/FlexStatementService.GetStatement"
+    )
+
+    xml_content = None
+    async with httpx.AsyncClient(timeout=30) as client:
+        for attempt in range(6):
+            if attempt > 0:
+                await asyncio.sleep(5)
+            get_url = f"{get_url_base}?q={ref_code}&t={IBKR_FLEX_TOKEN}&v=3"
+            r2 = await client.get(get_url)
+            try:
+                root2 = ET.fromstring(r2.text)
+                err_code = root2.findtext("ErrorCode")
+                if err_code in ("1019", "1018"):  # statement generation in progress
+                    continue
+                if root2.tag == "FlexStatementResponse":
+                    err_msg = root2.findtext("ErrorMessage") or "Unknown"
+                    return {"error": f"IBKR GetStatement error: {err_msg}"}
+            except ET.ParseError:
+                pass
+            xml_content = r2.text
+            break
+
+    if not xml_content:
+        return {"error": "IBKR statement not ready after retries"}
+
+    try:
+        tree = ET.fromstring(xml_content)
+    except ET.ParseError as e:
+        return {"error": f"XML parse error on statement: {e}"}
+
+    trades = []
+    for trade_el in tree.iter("Trade"):
+        if trade_el.get("levelOfDetail", "").upper() not in ("EXECUTION", "TRADE"):
+            continue
+        trade_id = trade_el.get("tradeID") or trade_el.get("transactionID")
+        if not trade_id:
+            continue
+
+        trade_date_raw = trade_el.get("tradeDate", "")
+        if len(trade_date_raw) == 8:
+            trade_date = f"{trade_date_raw[:4]}-{trade_date_raw[4:6]}-{trade_date_raw[6:8]}"
+        else:
+            trade_date = trade_date_raw
+
+        date_time_raw = trade_el.get("dateTime", "")
+        if date_time_raw and ";" in date_time_raw:
+            date_time_raw = date_time_raw.replace(";", " ")
+
+        def safe_float(val: str) -> float:
+            try:
+                return float(val) if val else 0.0
+            except (ValueError, TypeError):
+                return 0.0
+
+        trades.append({
+            "trade_id":      trade_id,
+            "symbol":        trade_el.get("symbol", ""),
+            "asset_category": trade_el.get("assetCategory", ""),
+            "currency":      trade_el.get("currency", "USD"),
+            "trade_date":    trade_date,
+            "date_time":     date_time_raw or trade_date,
+            "buy_sell":      trade_el.get("buySell", ""),
+            "quantity":      safe_float(trade_el.get("quantity")),
+            "price":         safe_float(trade_el.get("tradePrice")),
+            "proceeds":      safe_float(trade_el.get("proceeds")),
+            "commission":    safe_float(trade_el.get("ibCommission")),
+            "pnl":           safe_float(trade_el.get("fifoPnlRealized")),
+        })
+
+    conn = get_db()
+    inserted = 0
+    updated = 0
+    for t in trades:
+        existing = conn.execute(
+            "SELECT id FROM ibkr_trades WHERE trade_id = ?", (t["trade_id"],)
+        ).fetchone()
+        if existing:
+            conn.execute(
+                """UPDATE ibkr_trades SET symbol=?, asset_category=?, currency=?,
+                   trade_date=?, date_time=?, buy_sell=?, quantity=?, price=?,
+                   proceeds=?, commission=?, pnl=?, synced_at=datetime('now')
+                   WHERE trade_id=?""",
+                (t["symbol"], t["asset_category"], t["currency"],
+                 t["trade_date"], t["date_time"], t["buy_sell"],
+                 t["quantity"], t["price"], t["proceeds"], t["commission"],
+                 t["pnl"], t["trade_id"]),
+            )
+            updated += 1
+        else:
+            conn.execute(
+                """INSERT INTO ibkr_trades
+                   (trade_id, symbol, asset_category, currency, trade_date, date_time,
+                    buy_sell, quantity, price, proceeds, commission, pnl)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                (t["trade_id"], t["symbol"], t["asset_category"], t["currency"],
+                 t["trade_date"], t["date_time"], t["buy_sell"],
+                 t["quantity"], t["price"], t["proceeds"], t["commission"], t["pnl"]),
+            )
+            inserted += 1
+    conn.commit()
+    conn.close()
+
+    print(f"[IBKR] Sync done: {len(trades)} trades fetched, {inserted} inserted, {updated} updated")
+    return {"fetched": len(trades), "inserted": inserted, "updated": updated}
+
+
+# ---------------------------------------------------------------------------
+# Routes - IBKR
+# ---------------------------------------------------------------------------
+
+@app.get("/api/ibkr/status")
+def ibkr_status():
+    conn = get_db()
+    row = conn.execute("SELECT MAX(synced_at) as ts, COUNT(*) as cnt FROM ibkr_trades").fetchone()
+    conn.close()
+    return {
+        "configured": bool(IBKR_FLEX_TOKEN and IBKR_FLEX_QUERY_ID),
+        "last_sync":   row["ts"] if row else None,
+        "total_trades": row["cnt"] if row else 0,
+    }
+
+
+@app.post("/api/ibkr/sync")
+async def ibkr_sync():
+    result = await _fetch_ibkr_trades()
+    if "error" in result:
+        raise HTTPException(status_code=503, detail=result["error"])
+    return result
+
+
+@app.get("/api/ibkr/perf")
+def get_ibkr_perf():
+    conn = get_db()
+    year = date.today().year
+
+    # YTD — all trades with realized PnL
+    ytd_rows = conn.execute(
+        "SELECT pnl, commission FROM ibkr_trades WHERE trade_date >= ?",
+        (f"{year}-01-01",),
+    ).fetchall()
+    ytd_pnl   = sum(r["pnl"] for r in ytd_rows)
+    ytd_comm  = sum(r["commission"] for r in ytd_rows)
+    closed_ytd = [r for r in ytd_rows if r["pnl"] != 0]
+    ytd_wins  = sum(1 for r in closed_ytd if r["pnl"] > 0)
+
+    # Monthly grouping — all time, last 24 months
+    monthly_rows = conn.execute(
+        """SELECT substr(trade_date, 1, 7) as month,
+                  SUM(pnl)        as pnl,
+                  SUM(commission) as commission,
+                  COUNT(*)        as trades,
+                  SUM(CASE WHEN pnl > 0 THEN 1 ELSE 0 END) as wins,
+                  SUM(CASE WHEN pnl != 0 THEN 1 ELSE 0 END) as closed
+           FROM ibkr_trades
+           WHERE trade_date >= date('now', '-24 months')
+           GROUP BY month
+           ORDER BY month DESC""",
+    ).fetchall()
+
+    last_sync = conn.execute("SELECT MAX(synced_at) as ts FROM ibkr_trades").fetchone()
+    conn.close()
+
+    monthly = []
+    for r in monthly_rows:
+        pnl   = r["pnl"] or 0.0
+        comm  = r["commission"] or 0.0
+        closed = r["closed"] or 0
+        wins  = r["wins"] or 0
+        monthly.append({
+            "month":     r["month"],
+            "pnl":       round(pnl, 2),
+            "pnl_net":   round(pnl + comm, 2),
+            "commission": round(comm, 2),
+            "trades":    r["trades"] or 0,
+            "wins":      wins,
+            "win_rate":  round(wins / closed * 100, 1) if closed else 0,
+        })
+
+    return {
+        "ytd": {
+            "pnl":        round(ytd_pnl, 2),
+            "pnl_net":    round(ytd_pnl + ytd_comm, 2),
+            "commission": round(ytd_comm, 2),
+            "trades":     len(ytd_rows),
+            "wins":       ytd_wins,
+            "win_rate":   round(ytd_wins / len(closed_ytd) * 100, 1) if closed_ytd else 0,
+        },
+        "monthly":   monthly,
+        "last_sync": last_sync["ts"] if last_sync else None,
+    }
+
+
+@app.get("/api/ibkr/trades")
+def get_ibkr_trades(month: Optional[str] = None, limit: int = 100):
+    """Return IBKR trades, optionally filtered by month (YYYY-MM)."""
+    conn = get_db()
+    if month:
+        rows = conn.execute(
+            "SELECT * FROM ibkr_trades WHERE trade_date LIKE ? ORDER BY date_time DESC LIMIT ?",
+            (f"{month}%", limit),
+        ).fetchall()
+    else:
+        rows = conn.execute(
+            "SELECT * FROM ibkr_trades ORDER BY date_time DESC LIMIT ?",
+            (limit,),
+        ).fetchall()
+    conn.close()
+    return [dict(r) for r in rows]
+
+
+# ---------------------------------------------------------------------------
+# Scheduled IBKR sync (daily at 21:05 UTC)
+# ---------------------------------------------------------------------------
+
+async def _schedule_ibkr_sync():
+    """Background task: sync IBKR trades every day at 21:05 UTC."""
+    import asyncio
+    while True:
+        now_utc = datetime.utcnow()
+        target = now_utc.replace(hour=21, minute=5, second=0, microsecond=0)
+        if now_utc >= target:
+            target += timedelta(days=1)
+        await asyncio.sleep((target - now_utc).total_seconds())
+        try:
+            await _fetch_ibkr_trades()
+        except Exception as e:
+            print(f"[IBKR] Erreur sync planifié: {e}")
 
 
 # ---------------------------------------------------------------------------

@@ -94,7 +94,7 @@
 
     </section>
 
-    <!-- COLONNE TRADING : Notion STM -->
+    <!-- COLONNE TRADING : Notion STM + IBKR -->
     <section class="panel panel-trading">
       <div class="panel-header">
         <h2>Trading</h2>
@@ -102,7 +102,9 @@
           <button class="trade-tab active" data-tab="open" onclick="switchTradeTab('open')">Live</button>
           <button class="trade-tab" data-tab="recent" onclick="switchTradeTab('recent')">Récent</button>
           <button class="trade-tab" data-tab="watchlist" onclick="switchTradeTab('watchlist')">Watch</button>
+          <button class="trade-tab" data-tab="ibkr" onclick="switchTradeTab('ibkr')">IBKR</button>
         </div>
+        <button class="btn-icon ibkr-sync-btn" id="ibkrSyncBtn" onclick="syncIbkr()" title="Synchroniser IBKR" style="display:none">↻</button>
       </div>
       <div id="tradingContent"></div>
     </section>
@@ -206,6 +208,25 @@
 
   <!-- Toast notifications -->
   <div class="toast-container" id="toastContainer"></div>
+
+  <!-- IBKR TABLE SECTION (bottom, full width) -->
+  <section class="ibkr-section" id="ibkrSection">
+    <div class="ibkr-section-header">
+      <h2>IBKR — Historique des trades</h2>
+      <button class="btn-icon" onclick="syncIbkr()" id="ibkrSyncBtnTable" title="Synchroniser IBKR">↻</button>
+      <span class="ibkr-section-sync" id="ibkrSectionSync"></span>
+    </div>
+    <div id="ibkrTableContainer"></div>
+  </section>
+
+  <!-- IBKR RAW TRADES (full width) -->
+  <section class="ibkr-section ibkr-raw-section" id="ibkrRawSection">
+    <div class="ibkr-section-header">
+      <h2>IBKR — Tous les trades</h2>
+      <span class="ibkr-section-sync" id="ibkrRawCount"></span>
+    </div>
+    <div id="ibkrRawTableContainer"></div>
+  </section>
 
   <script src="/static/js/app.js"></script>
 </body>
