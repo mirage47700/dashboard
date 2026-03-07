@@ -472,7 +472,6 @@ def get_google_credentials():
         return None
     data = json.loads(GOOGLE_TOKEN_PATH.read_text())
     from google.oauth2.credentials import Credentials
-    from datetime import timezone
     creds = Credentials(
         token=data["token"],
         refresh_token=data.get("refresh_token"),
@@ -482,14 +481,15 @@ def get_google_credentials():
         scopes=data.get("scopes"),
     )
     if data.get("expiry"):
-        creds.expiry = datetime.fromisoformat(data["expiry"]).replace(tzinfo=timezone.utc)
+        raw = data["expiry"].replace("Z", "").split("+")[0]  # strip tz → naive UTC
+        creds.expiry = datetime.fromisoformat(raw)
     return creds
 
 
 def _persist_credentials(creds):
     existing = json.loads(GOOGLE_TOKEN_PATH.read_text()) if GOOGLE_TOKEN_PATH.exists() else {}
     existing["token"] = creds.token
-    existing["expiry"] = creds.expiry.isoformat() if creds.expiry else None
+    existing["expiry"] = creds.expiry.replace(tzinfo=None).isoformat() if creds.expiry else None
     if creds.refresh_token:
         existing["refresh_token"] = creds.refresh_token
     GOOGLE_TOKEN_PATH.write_text(json.dumps(existing, indent=2))
