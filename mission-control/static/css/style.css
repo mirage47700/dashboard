@@ -15,6 +15,18 @@
   --neg:      #ef4444;
   --warn:     #f59e0b;
   --radius:   10px;
+  /* Color aliases for agenda/calendar (match main dashboard) */
+  --blue:        #4f8ef7;
+  --purple:      #7c5cfc;
+  --green:       #22c55e;
+  --pink:        #ec4899;
+  --yellow:      #f59e0b;
+  --red:         #ef4444;
+  --google:      #4285F4;
+  --text-dim:    #e2e8f0;
+  --border-light:#2a2f3d;
+  --transition:  all 0.15s ease;
+  --radius-sm:   6px;
 }
 
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
@@ -65,6 +77,17 @@ textarea:focus, input:focus, select:focus { border-color: var(--accent); }
 .mc-hb.alive .mc-hb-dot { background: var(--pos); box-shadow: 0 0 6px var(--pos); animation: pulse-dot 2s infinite; }
 @keyframes pulse-dot { 0%,100% { opacity: 1; } 50% { opacity: 0.4; } }
 .mc-clock { font-size: 13px; color: var(--text-muted); font-variant-numeric: tabular-nums; }
+.mc-back-btn { font-size: 12px; color: var(--text-muted); text-decoration: none; padding: 4px 10px; border: 1px solid var(--border); border-radius: 6px; transition: color 0.15s, border-color 0.15s; }
+.mc-back-btn:hover { color: var(--text); border-color: var(--text-muted); }
+.mc-metrics { display: flex; gap: 8px; }
+.mc-metric {
+  font-size: 12px; font-weight: 600; padding: 4px 10px;
+  border-radius: 6px; background: var(--bg-card);
+  border: 1px solid var(--border);
+  font-variant-numeric: tabular-nums; color: var(--text-muted);
+}
+.mc-metric.pos { color: var(--pos); border-color: rgba(34,197,94,0.3); background: rgba(34,197,94,0.08); }
+.mc-metric.neg { color: var(--neg); border-color: rgba(239,68,68,0.3); background: rgba(239,68,68,0.08); }
 
 /* ================================================================
    TABS
@@ -207,14 +230,113 @@ textarea:focus, input:focus, select:focus { border-color: var(--accent); }
 .activity-time { font-size: 10px; color: var(--text-muted); margin-top: 2px; }
 
 /* ================================================================
-   CALENDAR
+   CALENDAR / AGENDA
 ================================================================ */
-.cron-table { width: 100%; border-collapse: collapse; }
-.cron-table th, .cron-table td { padding: 10px 16px; text-align: left; border-bottom: 1px solid var(--border); font-size: 13px; }
-.cron-table th { color: var(--text-muted); font-size: 11px; text-transform: uppercase; letter-spacing: 0.4px; background: var(--bg-panel); }
-.cron-table td:first-child { font-family: monospace; color: var(--accent); font-size: 12px; }
-.cron-human { color: var(--text-muted); font-size: 11px; margin-top: 2px; }
-.cron-empty { padding: 40px; text-align: center; color: var(--text-muted); }
+.mc-agenda-layout { display: flex; gap: 0; min-height: calc(100vh - 200px); }
+
+/* Google Calendar connect button */
+.gcal-connect-btn {
+  display: inline-flex; align-items: center; gap: 6px;
+  padding: 5px 12px; border-radius: 6px; font-size: 12px; font-weight: 500;
+  background: var(--bg-card); border: 1px solid var(--border); color: var(--text-muted);
+  text-decoration: none; transition: var(--transition);
+}
+.gcal-connect-btn:hover { border-color: var(--accent); color: var(--text); }
+.gcal-connect-btn.gcal-connected { border-color: rgba(66,133,244,0.4); color: #4285F4; background: rgba(66,133,244,0.08); }
+
+/* Mini calendar */
+.mini-calendar {
+  width: 260px; flex-shrink: 0;
+  padding: 16px;
+  background: var(--bg-panel);
+  border-right: 1px solid var(--border);
+}
+.cal-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px; }
+.cal-header .cal-title { font-size: 13px; font-weight: 600; color: var(--text); text-transform: capitalize; }
+.cal-nav { background: none; border: none; color: var(--text-muted); cursor: pointer; padding: 2px 8px; border-radius: 4px; font-size: 16px; transition: var(--transition); }
+.cal-nav:hover { background: var(--bg-hover); color: var(--text); }
+.cal-grid { display: grid; grid-template-columns: repeat(7, 1fr); gap: 2px; }
+.cal-day-name { font-size: 10px; color: var(--text-muted); text-align: center; padding: 4px 0; font-weight: 600; }
+.cal-day {
+  width: 30px; height: 30px; display: flex; align-items: center; justify-content: center;
+  border-radius: 50%; font-size: 12px; cursor: pointer; color: var(--text-dim);
+  transition: var(--transition); margin: auto; position: relative;
+}
+.cal-day:hover { background: var(--bg-hover); }
+.cal-day.today { background: var(--accent); color: #fff; font-weight: 700; }
+.cal-day.selected { background: var(--bg-hover); color: var(--text); font-weight: 600; outline: 2px solid var(--accent); outline-offset: -2px; }
+.cal-day.other-month { color: var(--border-light); opacity: 0.5; }
+.cal-day.has-event::after {
+  content: ''; display: block; width: 4px; height: 4px; border-radius: 50%;
+  background: var(--green); position: absolute; bottom: 2px; left: 50%; transform: translateX(-50%);
+}
+.cal-day.has-google-event::after { background: var(--google); }
+.cal-day.has-event.has-google-event::after { background: linear-gradient(to right, var(--green) 50%, var(--google) 50%); }
+
+/* Agenda timeline */
+.agenda-day { flex: 1; overflow-y: auto; padding: 8px 0; }
+.agenda-empty { padding: 40px; text-align: center; color: var(--text-muted); font-size: 13px; }
+.agenda-event {
+  display: flex; gap: 10px; padding: 9px 16px; margin: 2px 12px;
+  border-radius: var(--radius-sm); border-left: 3px solid;
+  background: var(--bg-card); transition: var(--transition); position: relative;
+}
+.agenda-event:hover { background: var(--bg-hover); }
+.agenda-event.color-blue   { border-color: var(--blue); }
+.agenda-event.color-purple { border-color: var(--purple); }
+.agenda-event.color-green  { border-color: var(--green); }
+.agenda-event.color-pink   { border-color: var(--pink); }
+.agenda-event.color-yellow { border-color: var(--yellow); }
+.agenda-event.color-google { border-color: var(--google); }
+.agenda-event.color-google::before {
+  content: 'G'; position: absolute; top: 7px; right: 28px;
+  font-size: 9px; font-weight: 700; color: var(--google);
+  background: rgba(66,133,244,0.12); border: 1px solid rgba(66,133,244,0.3);
+  border-radius: 3px; padding: 0 3px; line-height: 14px;
+}
+.event-time { font-size: 11px; color: var(--text-muted); font-variant-numeric: tabular-nums; white-space: nowrap; min-width: 42px; padding-top: 2px; }
+.event-title { font-size: 13px; font-weight: 500; flex: 1; }
+.event-desc { font-size: 11px; color: var(--text-muted); margin-top: 2px; }
+.event-delete { background: none; border: none; color: var(--text-muted); cursor: pointer; font-size: 12px; opacity: 0; transition: var(--transition); padding: 2px; }
+.agenda-event:hover .event-delete { opacity: 1; }
+.event-delete:hover { color: var(--neg); }
+
+/* Color picker for event modal */
+.color-picker { display: flex; gap: 8px; }
+.color-dot { width: 22px; height: 22px; border-radius: 50%; border: 2px solid transparent; cursor: pointer; transition: var(--transition); }
+.color-dot.active { border-color: #fff; transform: scale(1.15); }
+.dot-blue   { background: var(--blue); }
+.dot-purple { background: var(--purple); }
+.dot-green  { background: var(--green); }
+.dot-pink   { background: var(--pink); }
+.dot-yellow { background: var(--yellow); }
+
+/* ================================================================
+   IBKR
+================================================================ */
+.ibkr-stats {
+  display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  gap: 12px; margin-bottom: 20px;
+}
+.ibkr-stat {
+  background: var(--bg-panel); border: 1px solid var(--border);
+  border-radius: var(--radius); padding: 16px;
+}
+.ibkr-stat-label { font-size: 11px; color: var(--text-muted); font-weight: 500; text-transform: uppercase; letter-spacing: 0.4px; margin-bottom: 6px; }
+.ibkr-stat-val { font-size: 20px; font-weight: 700; font-variant-numeric: tabular-nums; }
+.ibkr-stat-val.pos { color: var(--pos); }
+.ibkr-stat-val.neg { color: var(--neg); }
+
+.ibkr-monthly { margin-bottom: 20px; }
+.ibkr-trades  { }
+.ibkr-table { width: 100%; border-collapse: collapse; }
+.ibkr-table th { padding: 9px 14px; text-align: left; border-bottom: 1px solid var(--border); font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.4px; color: var(--text-muted); background: var(--bg-panel); }
+.ibkr-table td { padding: 8px 14px; border-bottom: 1px solid rgba(255,255,255,0.04); font-size: 12px; }
+.ibkr-table tr:hover td { background: var(--bg-hover); }
+.ibkr-table .pos { color: var(--pos); }
+.ibkr-table .neg { color: var(--neg); }
+.ibkr-table .muted { color: var(--text-muted); }
+.ibkr-empty { padding: 40px; text-align: center; color: var(--text-muted); font-size: 13px; }
 
 /* ================================================================
    PROJECTS

@@ -2,7 +2,7 @@ module.exports = {
   apps: [{
     name: 'mission-control',
     script: '/home/dashboard/venv/bin/uvicorn',
-    args: 'main:app --host 0.0.0.0 --port 8081',
+    args: 'main:app --host 0.0.0.0 --port 8082',
     cwd: '/home/dashboard/mission-control',
     interpreter: 'none',
     env: {

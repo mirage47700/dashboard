@@ -1,0 +1,21 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100">
+  <!-- Background -->
+  <rect width="100" height="100" rx="16" fill="#0d0f14"/>
+  <!-- Outer circle -->
+  <circle cx="50" cy="50" r="38" fill="none" stroke="#e2e8f0" stroke-width="3"/>
+  <!-- Compass rose - N arrow (white, pointing up) -->
+  <polygon points="50,16 44,50 50,44 56,50" fill="#ffffff"/>
+  <!-- Compass rose - S arrow (gray, pointing down) -->
+  <polygon points="50,84 56,50 50,56 44,50" fill="#64748b"/>
+  <!-- Compass rose - E arrow (gray, pointing right) -->
+  <polygon points="84,50 50,44 56,50 50,56" fill="#94a3b8"/>
+  <!-- Compass rose - W arrow (gray, pointing left) -->
+  <polygon points="16,50 50,56 44,50 50,44" fill="#94a3b8"/>
+  <!-- Center dot -->
+  <circle cx="50" cy="50" r="4" fill="#e2e8f0"/>
+  <!-- Cardinal marks -->
+  <text x="50" y="11" text-anchor="middle" fill="#ffffff" font-size="8" font-family="Arial" font-weight="bold">N</text>
+  <text x="50" y="96" text-anchor="middle" fill="#64748b" font-size="8" font-family="Arial">S</text>
+  <text x="90" y="53" text-anchor="middle" fill="#94a3b8" font-size="8" font-family="Arial">E</text>
+  <text x="10" y="53" text-anchor="middle" fill="#94a3b8" font-size="8" font-family="Arial">W</text>
+</svg>
