@@ -182,7 +182,8 @@ class EventCreate(BaseModel):
 
 @app.get("/", response_class=HTMLResponse)
 async def index(request: Request):
-    return templates.TemplateResponse("index.html", {"request": request})
+    from fastapi.responses import RedirectResponse
+    return RedirectResponse(url="/mission-control/")
 
 
 @app.get("/widget.js")

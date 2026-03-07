@@ -201,14 +201,12 @@ async function loadHeaderMetrics() {
       api('/api/usage').catch(() => null),
       api('/api/ibkr/perf').catch(() => null),
     ]);
-
     const orEl = $('metricOR');
     if (orEl && usage?.openrouter?.connected) {
       const rem = usage.openrouter.remaining_credits ?? 0;
       orEl.textContent = `OR $${rem.toFixed(2)}`;
       orEl.className = 'mc-metric';
     }
-
     const pnlEl = $('metricPnl');
     if (pnlEl && perf?.ytd) {
       const pnl = perf.ytd.pnl_net ?? 0;
@@ -219,110 +217,173 @@ async function loadHeaderMetrics() {
 }
 
 // ---------------------------------------------------------------------------
-// CALENDAR (Google Calendar)
+// CALENDAR / AGENDA  (same as main dashboard)
 // ---------------------------------------------------------------------------
-let calYear = new Date().getFullYear();
+const mcToday = () => new Date().toISOString().split('T')[0];
+let allEvents    = [];
+let selectedDate = mcToday();
+let selectedEventColor = 'blue';
+
+// calYear/calMonth already declared globally at top if needed — declare here
+let calYear  = new Date().getFullYear();
 let calMonth = new Date().getMonth();
-let calSelectedDate = new Date().toISOString().split('T')[0];
-let calEvents = [];
 
 async function loadCalendar() {
-  const start = new Date(calYear, calMonth, 1).toISOString();
-  const end   = new Date(calYear, calMonth + 1, 0, 23, 59).toISOString();
-  try {
-    const [local, google] = await Promise.all([
-      api(`/api/events`).catch(() => []),
-      api(`/api/events/google?start=${encodeURIComponent(start)}&end=${encodeURIComponent(end)}`).catch(() => []),
-    ]);
-    // Check google auth status
-    const status = await api('/api/google/status').catch(() => ({ connected: false }));
-    const btn = $('gcalConnectBtn');
-    if (btn) btn.style.display = status.connected ? 'none' : '';
-
-    calEvents = [...local, ...google].sort((a, b) => new Date(a.start_datetime) - new Date(b.start_datetime));
-  } catch(_) { calEvents = []; }
-  renderCalGrid();
-  renderCalDay();
+  const [localEvents, googleEvents] = await Promise.all([
+    api('/api/events').catch(() => []),
+    api('/api/events/google').catch(() => []),
+  ]);
+  allEvents = [...localEvents, ...googleEvents].sort(
+    (a, b) => new Date(a.start_datetime) - new Date(b.start_datetime)
+  );
+  // Google Calendar status button
+  const status = await api('/api/google/status').catch(() => ({ connected: false }));
+  const btn   = $('gcalStatusBtn');
+  const label = $('gcalStatusLabel');
+  if (btn) {
+    if (status.connected) {
+      btn.classList.add('gcal-connected');
+      if (label) label.textContent = 'Connecté';
+    } else {
+      btn.classList.remove('gcal-connected');
+      if (label) label.textContent = 'Connecter';
+    }
+  }
+  renderAgendaDay();
+  renderMiniCalendar();
 }
 
-function renderCalGrid() {
-  const body  = $('calGridBody');
-  const label = $('calMonthLabel');
-  if (!body) return;
+function renderAgendaDay() {
+  const timeline = $('agendaTimeline');
+  const titleEl  = $('agendaTitle');
+  const dayEvents = allEvents.filter(e => e.start_datetime.startsWith(selectedDate));
+
+  if (titleEl) {
+    const isToday = selectedDate === mcToday();
+    titleEl.textContent = isToday
+      ? 'Agenda du jour'
+      : new Date(selectedDate + 'T00:00:00').toLocaleDateString('fr-FR', { weekday: 'long', day: 'numeric', month: 'long' });
+  }
+
+  if (!dayEvents.length) {
+    timeline.innerHTML = '<div class="agenda-empty">Aucun événement</div>';
+    return;
+  }
+  timeline.innerHTML = dayEvents.map(e => {
+    const deleteBtn = e.source === 'google'
+      ? '' : `<button class="event-delete" onclick="deleteMcEvent(${e.id})">✕</button>`;
+    return `
+    <div class="agenda-event color-${e.color || 'blue'}">
+      <div class="event-time">${fmtTime(e.start_datetime)}</div>
+      <div>
+        <div class="event-title">${escHtml(e.title)}</div>
+        ${e.description ? `<div class="event-desc">${escHtml(e.description)}</div>` : ''}
+      </div>
+      ${deleteBtn}
+    </div>`;
+  }).join('');
+}
+
+function renderMiniCalendar() {
+  const container = $('miniCalendar');
+  if (!container) return;
+  const todayStr = mcToday();
+  const localEventDays  = new Set(allEvents.filter(e => e.source !== 'google').map(e => e.start_datetime.split('T')[0]));
+  const googleEventDays = new Set(allEvents.filter(e => e.source === 'google').map(e => e.start_datetime.split('T')[0]));
 
   const firstDay = new Date(calYear, calMonth, 1);
   const lastDay  = new Date(calYear, calMonth + 1, 0);
   const startDow = (firstDay.getDay() + 6) % 7;
-  const todayStr = new Date().toISOString().split('T')[0];
+  const monthName = firstDay.toLocaleDateString('fr-FR', { month: 'long', year: 'numeric' });
 
-  if (label) label.textContent = firstDay.toLocaleDateString('fr-FR', { month: 'long', year: 'numeric' });
-
-  const eventDays = new Set(calEvents.map(e => e.start_datetime.split('T')[0]));
-  const googleDays = new Set(calEvents.filter(e => e.source === 'google').map(e => e.start_datetime.split('T')[0]));
-
-  let html = '';
-  for (let i = 0; i < startDow; i++) html += '<div class="cal-cell other"></div>';
-  for (let d = 1; d <= lastDay.getDate(); d++) {
-    const dateStr = `${calYear}-${String(calMonth + 1).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
-    const cls = ['cal-cell',
-      dateStr === todayStr        ? 'today'      : '',
-      dateStr === calSelectedDate ? 'selected'   : '',
-      googleDays.has(dateStr)     ? 'has-google' : (eventDays.has(dateStr) ? 'has-event' : ''),
-    ].filter(Boolean).join(' ');
-    html += `<div class="${cls}" onclick="calSelectDay('${dateStr}')">${d}</div>`;
-  }
-  const rem = (startDow + lastDay.getDate()) % 7;
-  if (rem) for (let i = 0; i < 7 - rem; i++) html += '<div class="cal-cell other"></div>';
-  body.innerHTML = html;
-}
-
-function renderCalDay() {
-  const listEl  = $('calEventsList');
-  const titleEl = $('calDayTitle');
-  if (!listEl) return;
-
-  const dayEvents = calEvents.filter(e => e.start_datetime.startsWith(calSelectedDate));
-  if (titleEl) titleEl.textContent = new Date(calSelectedDate + 'T00:00:00').toLocaleDateString('fr-FR', { weekday: 'long', day: 'numeric', month: 'long' });
-
-  if (!dayEvents.length) {
-    listEl.innerHTML = '<div class="cal-empty">Aucun événement</div>';
-    return;
-  }
-  listEl.innerHTML = dayEvents.map(e => `
-    <div class="cal-event-item ${e.source === 'google' ? 'google' : ''}">
-      <div class="cal-event-time">${fmtTime(e.start_datetime)}</div>
-      <div>
-        <div class="cal-event-title">${escHtml(e.title)}</div>
-        ${e.description ? `<div class="cal-event-desc">${escHtml(e.description)}</div>` : ''}
-      </div>
+  let html = `
+    <div class="cal-header">
+      <button class="cal-nav" onclick="calNav(-1)">‹</button>
+      <span class="cal-title">${monthName}</span>
+      <button class="cal-nav" onclick="calNav(1)">›</button>
     </div>
-  `).join('');
+    <div class="cal-grid">
+      <div class="cal-day-name">Lu</div><div class="cal-day-name">Ma</div>
+      <div class="cal-day-name">Me</div><div class="cal-day-name">Je</div>
+      <div class="cal-day-name">Ve</div><div class="cal-day-name">Sa</div>
+      <div class="cal-day-name">Di</div>`;
+
+  for (let i = 0; i < startDow; i++) {
+    const prev = new Date(calYear, calMonth, -startDow + i + 1);
+    html += `<div class="cal-day other-month">${prev.getDate()}</div>`;
+  }
+  for (let d = 1; d <= lastDay.getDate(); d++) {
+    const dateStr = `${calYear}-${String(calMonth+1).padStart(2,'0')}-${String(d).padStart(2,'0')}`;
+    const isToday    = dateStr === todayStr;
+    const isSelected = dateStr === selectedDate && dateStr !== todayStr;
+    const hasLocal   = localEventDays.has(dateStr);
+    const hasGoogle  = googleEventDays.has(dateStr);
+    const cls = ['cal-day', isToday ? 'today' : '', isSelected ? 'selected' : '',
+      hasLocal ? 'has-event' : '', hasGoogle ? 'has-google-event' : ''].filter(Boolean).join(' ');
+    html += `<div class="${cls}" onclick="calDayClick('${dateStr}')">${d}</div>`;
+  }
+  const totalCells = startDow + lastDay.getDate();
+  const remainder  = totalCells % 7 === 0 ? 0 : 7 - (totalCells % 7);
+  for (let i = 1; i <= remainder; i++) html += `<div class="cal-day other-month">${i}</div>`;
+  html += '</div>';
+  container.innerHTML = html;
 }
 
-function calSelectDay(dateStr) {
-  calSelectedDate = dateStr;
-  renderCalGrid();
-  renderCalDay();
-}
-
-function calGoPrev() {
-  calMonth--;
-  if (calMonth < 0) { calMonth = 11; calYear--; }
-  loadCalendar();
-}
-
-function calGoNext() {
-  calMonth++;
+function calNav(dir) {
+  calMonth += dir;
   if (calMonth > 11) { calMonth = 0; calYear++; }
-  loadCalendar();
+  if (calMonth < 0)  { calMonth = 11; calYear--; }
+  renderMiniCalendar();
+}
+
+function calDayClick(dateStr) {
+  selectedDate = dateStr;
+  renderMiniCalendar();
+  renderAgendaDay();
 }
 
 function calGoToday() {
-  const now = new Date();
-  calYear = now.getFullYear();
-  calMonth = now.getMonth();
-  calSelectedDate = now.toISOString().split('T')[0];
-  loadCalendar();
+  selectedDate = mcToday();
+  calYear  = new Date().getFullYear();
+  calMonth = new Date().getMonth();
+  renderMiniCalendar();
+  renderAgendaDay();
+}
+
+function openMcEventModal() {
+  $('mcEventStart').value = selectedDate + 'T09:00';
+  $('mcEventTitle').value = '';
+  $('mcEventDesc').value = '';
+  $('mcEventModal').classList.remove('hidden');
+}
+
+function selectEventColor(btn, color) {
+  selectedEventColor = color;
+  $('mcColorPicker').querySelectorAll('.color-dot').forEach(b => b.classList.remove('active'));
+  btn.classList.add('active');
+}
+
+async function saveMcEvent() {
+  const title = $('mcEventTitle').value.trim();
+  const start = $('mcEventStart').value;
+  if (!title || !start) return;
+  try {
+    await api('/api/events', 'POST', {
+      title,
+      description: $('mcEventDesc').value.trim(),
+      start_datetime: start,
+      end_datetime: $('mcEventEnd').value || null,
+      color: selectedEventColor,
+    });
+    closeModal('mcEventModal');
+    await loadCalendar();
+  } catch(e) { alert('Erreur: ' + e.message); }
+}
+
+async function deleteMcEvent(id) {
+  if (!confirm('Supprimer cet événement ?')) return;
+  await api(`/api/events/${id}`, 'DELETE');
+  await loadCalendar();
 }
 
 // ---------------------------------------------------------------------------
