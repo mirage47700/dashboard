@@ -41,7 +41,11 @@
     <!-- COLONNE GAUCHE : Agenda -->
     <section class="panel panel-agenda">
       <div class="panel-header">
-        <h2>Agenda du jour</h2>
+        <h2>Agenda</h2>
+        <div class="agenda-view-tabs">
+          <button class="agenda-view-tab active" data-view="day" onclick="switchAgendaView('day')">Jour</button>
+          <button class="agenda-view-tab" data-view="week" onclick="switchAgendaView('week')">Semaine</button>
+        </div>
         <a id="gcalStatusBtn" href="/auth/google" class="gcal-connect-btn" title="Connecter Google Calendar">
           <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><path d="M19 3h-1V1h-2v2H8V1H6v2H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2zm0 16H5V8h14v11zM7 10h5v5H7z"/></svg>
           <span id="gcalStatusLabel">Connecter</span>
@@ -56,6 +60,9 @@
       <div class="agenda-day" id="agendaDay">
         <div class="agenda-timeline" id="agendaTimeline"></div>
       </div>
+
+      <!-- Vue semaine -->
+      <div class="agenda-week" id="agendaWeek" style="display:none"></div>
     </section>
 
     <!-- COLONNE CENTRE : Tâches -->
