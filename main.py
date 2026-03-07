@@ -829,10 +829,11 @@ async def _fetch_ibkr_trades() -> dict:
     async with httpx.AsyncClient(timeout=30) as client:
         r = await client.get(send_url)
 
+    print(f"[IBKR] SendRequest status={r.status_code} body[:300]={r.text[:300]!r}")
     try:
         root = ET.fromstring(r.text)
     except ET.ParseError as e:
-        return {"error": f"XML parse error on SendRequest: {e}"}
+        return {"error": f"XML parse error on SendRequest: {e}", "raw": r.text[:300]}
 
     status = root.findtext("Status")
     if status != "Success":
@@ -846,12 +847,14 @@ async def _fetch_ibkr_trades() -> dict:
     )
 
     xml_content = None
+    last_raw = ""
     async with httpx.AsyncClient(timeout=30) as client:
         for attempt in range(6):
             if attempt > 0:
                 await asyncio.sleep(5)
             get_url = f"{get_url_base}?q={ref_code}&t={IBKR_FLEX_TOKEN}&v=3"
             r2 = await client.get(get_url)
+            last_raw = r2.text[:300]
             try:
                 root2 = ET.fromstring(r2.text)
             except ET.ParseError as e:
@@ -867,7 +870,7 @@ async def _fetch_ibkr_trades() -> dict:
             break
 
     if not xml_content:
-        return {"error": "IBKR statement not ready after retries"}
+        return {"error": "IBKR statement not ready after retries", "last_raw": last_raw}
 
     try:
         tree = ET.fromstring(xml_content)
