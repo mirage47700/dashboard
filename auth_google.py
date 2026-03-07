@@ -29,17 +29,22 @@ client_config = {
         "client_secret": GOOGLE_CLIENT_SECRET,
         "auth_uri":      "https://accounts.google.com/o/oauth2/auth",
         "token_uri":     "https://oauth2.googleapis.com/token",
-        "redirect_uris": ["urn:ietf:wg:oauth:2.0:oob", "http://localhost"],
+        "redirect_uris": ["http://localhost"],
     }
 }
 
-flow = InstalledAppFlow.from_client_config(client_config, scopes=SCOPES)
+flow = InstalledAppFlow.from_client_config(
+    client_config, scopes=SCOPES, redirect_uri="http://localhost"
+)
 
 auth_url, _ = flow.authorization_url(prompt="consent", access_type="offline")
 print("\nOuvre cette URL dans ton navigateur :")
 print(auth_url)
-code = input("\nColle ici le code d'autorisation : ").strip()
-flow.fetch_token(code=code)
+print("\nApres autorisation, ton navigateur tentera d'ouvrir http://localhost/?code=...")
+print("Cette page ne chargera pas — c'est normal.")
+print("Copie le parametre 'code' depuis l'URL de la barre d'adresse.\n")
+code = input("Colle ici le code : ").strip()
+flow.fetch_token(code=code, redirect_uri="http://localhost")
 creds = flow.credentials
 
 token_data = {
