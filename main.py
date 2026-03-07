@@ -846,7 +846,7 @@ async def _fetch_ibkr_trades() -> dict:
         or "https://gdcdyn.interactivebrokers.com/Universal/servlet/FlexStatementService.GetStatement"
     )
 
-    xml_content = None
+    statement_content = None
     last_raw = ""
     async with httpx.AsyncClient(timeout=30) as client:
         for attempt in range(6):
@@ -855,6 +855,11 @@ async def _fetch_ibkr_trades() -> dict:
             get_url = f"{get_url_base}?q={ref_code}&t={IBKR_FLEX_TOKEN}&v=3"
             r2 = await client.get(get_url)
             last_raw = r2.text[:300]
+            # CSV response: IBKR Flex Query configured with CSV format
+            if r2.text.lstrip().startswith('"'):
+                print(f"[IBKR] Detected CSV format, attempt {attempt}")
+                statement_content = r2.text
+                break
             try:
                 root2 = ET.fromstring(r2.text)
             except ET.ParseError as e:
@@ -866,55 +871,83 @@ async def _fetch_ibkr_trades() -> dict:
             if root2.tag == "FlexStatementResponse" or err_code:
                 err_msg = root2.findtext("ErrorMessage") or f"code={err_code}"
                 return {"error": f"IBKR GetStatement error: {err_msg}"}
-            xml_content = r2.text
+            statement_content = r2.text
             break
 
-    if not xml_content:
+    if not statement_content:
         return {"error": "IBKR statement not ready after retries", "last_raw": last_raw}
 
-    try:
-        tree = ET.fromstring(xml_content)
-    except ET.ParseError as e:
-        return {"error": f"XML parse error on statement: {e}"}
+    def safe_float(val: str) -> float:
+        try:
+            return float(val) if val else 0.0
+        except (ValueError, TypeError):
+            return 0.0
 
     trades = []
-    for trade_el in tree.iter("Trade"):
-        if trade_el.get("levelOfDetail", "").upper() not in ("EXECUTION", "TRADE"):
-            continue
-        trade_id = trade_el.get("tradeID") or trade_el.get("transactionID")
-        if not trade_id:
-            continue
 
-        trade_date_raw = trade_el.get("tradeDate", "")
-        if len(trade_date_raw) == 8:
-            trade_date = f"{trade_date_raw[:4]}-{trade_date_raw[4:6]}-{trade_date_raw[6:8]}"
-        else:
-            trade_date = trade_date_raw
+    # ---- CSV format --------------------------------------------------------
+    if statement_content.lstrip().startswith('"'):
+        import csv, io
+        reader = csv.DictReader(io.StringIO(statement_content))
+        for row in reader:
+            # IBKR CSV uses "Buy/Sell" header with slash
+            trade_id = row.get("TradeID") or row.get("TransactionID") or row.get("IBOrderID", "")
+            if not trade_id:
+                continue
+            trade_date_raw = row.get("TradeDate", "")
+            if len(trade_date_raw) == 8:
+                trade_date = f"{trade_date_raw[:4]}-{trade_date_raw[4:6]}-{trade_date_raw[6:8]}"
+            else:
+                trade_date = trade_date_raw
+            date_time_raw = row.get("DateTime", trade_date).replace(";", " ")
+            trades.append({
+                "trade_id":       trade_id,
+                "symbol":         row.get("Symbol", ""),
+                "asset_category": row.get("AssetClass", row.get("AssetCategory", "")),
+                "currency":       row.get("CurrencyPrimary", row.get("Currency", "USD")),
+                "trade_date":     trade_date,
+                "date_time":      date_time_raw or trade_date,
+                "buy_sell":       row.get("Buy/Sell", row.get("BuySell", "")),
+                "quantity":       safe_float(row.get("Quantity")),
+                "price":          safe_float(row.get("TradePrice")),
+                "proceeds":       safe_float(row.get("Proceeds")),
+                "commission":     safe_float(row.get("IBCommission", row.get("Commission", ""))),
+                "pnl":            safe_float(row.get("FifoPnlRealized", row.get("RealizedPnL", ""))),
+            })
 
-        date_time_raw = trade_el.get("dateTime", "")
-        if date_time_raw and ";" in date_time_raw:
-            date_time_raw = date_time_raw.replace(";", " ")
+    # ---- XML format --------------------------------------------------------
+    else:
+        try:
+            tree = ET.fromstring(statement_content)
+        except ET.ParseError as e:
+            return {"error": f"XML parse error on statement: {e}"}
 
-        def safe_float(val: str) -> float:
-            try:
-                return float(val) if val else 0.0
-            except (ValueError, TypeError):
-                return 0.0
-
-        trades.append({
-            "trade_id":      trade_id,
-            "symbol":        trade_el.get("symbol", ""),
-            "asset_category": trade_el.get("assetCategory", ""),
-            "currency":      trade_el.get("currency", "USD"),
-            "trade_date":    trade_date,
-            "date_time":     date_time_raw or trade_date,
-            "buy_sell":      trade_el.get("buySell", ""),
-            "quantity":      safe_float(trade_el.get("quantity")),
-            "price":         safe_float(trade_el.get("tradePrice")),
-            "proceeds":      safe_float(trade_el.get("proceeds")),
-            "commission":    safe_float(trade_el.get("ibCommission")),
-            "pnl":           safe_float(trade_el.get("fifoPnlRealized")),
-        })
+        for trade_el in tree.iter("Trade"):
+            if trade_el.get("levelOfDetail", "").upper() not in ("EXECUTION", "TRADE"):
+                continue
+            trade_id = trade_el.get("tradeID") or trade_el.get("transactionID")
+            if not trade_id:
+                continue
+            trade_date_raw = trade_el.get("tradeDate", "")
+            if len(trade_date_raw) == 8:
+                trade_date = f"{trade_date_raw[:4]}-{trade_date_raw[4:6]}-{trade_date_raw[6:8]}"
+            else:
+                trade_date = trade_date_raw
+            date_time_raw = trade_el.get("dateTime", "").replace(";", " ")
+            trades.append({
+                "trade_id":       trade_el.get("tradeID") or trade_el.get("transactionID"),
+                "symbol":         trade_el.get("symbol", ""),
+                "asset_category": trade_el.get("assetCategory", ""),
+                "currency":       trade_el.get("currency", "USD"),
+                "trade_date":     trade_date,
+                "date_time":      date_time_raw or trade_date,
+                "buy_sell":       trade_el.get("buySell", ""),
+                "quantity":       safe_float(trade_el.get("quantity")),
+                "price":          safe_float(trade_el.get("tradePrice")),
+                "proceeds":       safe_float(trade_el.get("proceeds")),
+                "commission":     safe_float(trade_el.get("ibCommission")),
+                "pnl":            safe_float(trade_el.get("fifoPnlRealized")),
+            })
 
     conn = get_db()
     inserted = 0
