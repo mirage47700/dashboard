@@ -126,9 +126,11 @@ app.mount("/static", StaticFiles(directory=BASE_DIR / "static"), name="static")
 templates = Jinja2Templates(directory=BASE_DIR / "templates")
 
 # Mount Mission Control as sub-app
-import sys as _sys
-_sys.path.insert(0, str(BASE_DIR))
-from mission_control.main import app as _mc_app
+import importlib.util as _ilu
+_mc_spec = _ilu.spec_from_file_location("mission_control_main", BASE_DIR / "mission-control" / "main.py")
+_mc_mod = _ilu.module_from_spec(_mc_spec)
+_mc_spec.loader.exec_module(_mc_mod)
+_mc_app = _mc_mod.app
 app.mount("/mission-control", _mc_app)
 
 
