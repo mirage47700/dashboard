@@ -771,11 +771,12 @@ async def get_api_usage():
                     total   = d.get("total_credits", 0)
                     used    = d.get("total_usage", 0)
                     out["openrouter"] = {
-                        "connected":      True,
-                        "total_credits":  total,
-                        "total_usage":    used,
-                        "remaining":      round(total - used, 4),
-                        "pct_used":       round(used / total * 100, 1) if total else 0,
+                        "connected":         True,
+                        "total_credits":     total,
+                        "total_usage":       used,
+                        "remaining":         round(total - used, 4),
+                        "remaining_credits": round(total - used, 4),
+                        "pct_used":          round(used / total * 100, 1) if total else 0,
                     }
                 else:
                     out["openrouter"] = {"connected": False, "error": r.status_code}
