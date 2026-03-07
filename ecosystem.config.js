@@ -8,6 +8,8 @@ module.exports = {
       interpreter: "none",
       env: {
         PYTHONPATH: "/home/dashboard",
+        IBKR_FLEX_TOKEN: process.env.IBKR_FLEX_TOKEN || "",
+        IBKR_FLEX_QUERY_ID: process.env.IBKR_FLEX_QUERY_ID || "",
       },
       watch: false,
       autorestart: true,
