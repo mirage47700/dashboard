@@ -15,6 +15,10 @@ let editingTaskId = null;
 let calYear  = new Date().getFullYear();
 let calMonth = new Date().getMonth();
 
+// Agenda view state
+let agendaViewMode = 'day';
+let weekOffset = 0;
+
 // ---------------------------------------------------------------------------
 // Utils
 // ---------------------------------------------------------------------------
@@ -285,6 +289,7 @@ async function loadEvents() {
   );
   renderAgendaDay();
   renderMiniCalendar();
+  if (agendaViewMode === 'week') renderWeekView();
 }
 
 function renderAgendaDay() {
@@ -412,6 +417,93 @@ function calDayClick(dateStr) {
   // Pre-fill event modal with clicked date
   $('eventStart').value = dateStr + 'T09:00';
   openModal('eventModal');
+}
+
+// ---------------------------------------------------------------------------
+// AGENDA VIEW (Jour / Semaine)
+// ---------------------------------------------------------------------------
+function switchAgendaView(mode) {
+  agendaViewMode = mode;
+  document.querySelectorAll('.agenda-view-tab').forEach(b => b.classList.remove('active'));
+  document.querySelector(`.agenda-view-tab[data-view="${mode}"]`)?.classList.add('active');
+  if (mode === 'day') {
+    $('agendaDay').style.display = '';
+    $('agendaWeek').style.display = 'none';
+  } else {
+    $('agendaDay').style.display = 'none';
+    $('agendaWeek').style.display = '';
+    renderWeekView();
+  }
+}
+
+function weekNav(dir) {
+  weekOffset += dir;
+  renderWeekView();
+}
+
+function getWeekStart(offset) {
+  const d = new Date();
+  const dow = (d.getDay() + 6) % 7; // 0=Mon
+  d.setDate(d.getDate() - dow + offset * 7);
+  d.setHours(0, 0, 0, 0);
+  return d;
+}
+
+function renderWeekView() {
+  const container = $('agendaWeek');
+  const weekStart = getWeekStart(weekOffset);
+  const todayStr  = today();
+
+  const weekEnd = new Date(weekStart);
+  weekEnd.setDate(weekEnd.getDate() + 6);
+  const fmtShort = d => d.toLocaleDateString('fr-FR', { day: 'numeric', month: 'short' });
+  const weekLabel = `${fmtShort(weekStart)} – ${fmtShort(weekEnd)}`;
+
+  const dayNames = ['Lu', 'Ma', 'Me', 'Je', 'Ve', 'Sa', 'Di'];
+
+  let html = `
+    <div class="week-nav">
+      <button class="cal-nav" onclick="weekNav(-1)">‹</button>
+      <span class="week-label">${weekLabel}</span>
+      <button class="cal-nav" onclick="weekNav(1)">›</button>
+    </div>
+    <div class="week-days">`;
+
+  for (let i = 0; i < 7; i++) {
+    const d = new Date(weekStart);
+    d.setDate(d.getDate() + i);
+    const dateStr = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+    const isToday = dateStr === todayStr;
+    const dayEvents = allEvents
+      .filter(e => e.start_datetime.startsWith(dateStr))
+      .sort((a, b) => new Date(a.start_datetime) - new Date(b.start_datetime));
+
+    html += `
+      <div class="week-day ${isToday ? 'week-day-today' : ''}">
+        <div class="week-day-header">
+          <span class="week-day-name">${dayNames[i]}</span>
+          <span class="week-day-num ${isToday ? 'week-today-num' : ''}">${d.getDate()}</span>
+        </div>
+        <div class="week-day-events">`;
+
+    if (dayEvents.length === 0) {
+      html += `<div class="week-no-event">—</div>`;
+    } else {
+      dayEvents.forEach(ev => {
+        const colorCls = `color-${ev.color || 'blue'}`;
+        html += `
+          <div class="week-event ${colorCls}" title="${escHtml(ev.title)}">
+            <span class="week-event-time">${fmtTime(ev.start_datetime)}</span>
+            <span class="week-event-title">${escHtml(ev.title)}</span>
+          </div>`;
+      });
+    }
+
+    html += `</div></div>`;
+  }
+
+  html += '</div>';
+  container.innerHTML = html;
 }
 
 // ---------------------------------------------------------------------------
