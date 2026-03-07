@@ -28,12 +28,12 @@
 }
 
 html, body {
-  height: 100%;
   font-family: 'Inter', system-ui, sans-serif;
   font-size: 14px;
   background: var(--bg);
   color: var(--text);
-  overflow: hidden;
+  overflow-x: hidden;
+  overflow-y: auto;
 }
 
 /* ================================================================
@@ -48,6 +48,9 @@ html, body {
   border-bottom: 1px solid var(--border);
   height: 64px;
   flex-shrink: 0;
+  position: sticky;
+  top: 0;
+  z-index: 100;
 }
 
 .header-date {
@@ -135,6 +138,8 @@ html, body {
   gap: 0;
   height: calc(100vh - 64px);
   overflow: hidden;
+  position: sticky;
+  top: 64px;
 }
 
 .panel {
@@ -942,18 +947,361 @@ html, body {
   font-variant-numeric: tabular-nums;
 }
 
+/* chip-danger for negative YTD */
+.chip.chip-danger { border-color: var(--red); color: var(--red); }
+
+/* ================================================================
+   IBKR PANEL (trading tab — mini view)
+================================================================ */
+
+/* YTD Banner */
+.ibkr-ytd {
+  background: var(--bg-card);
+  border: 1px solid var(--border-light);
+  border-radius: var(--radius-sm);
+  padding: 10px 12px;
+  margin: 8px 12px 4px;
+}
+
+.ibkr-ytd-row {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.ibkr-ytd-label {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.ibkr-ytd-pnl {
+  font-size: 20px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+.ibkr-ytd-pnl.pos { color: var(--green); }
+.ibkr-ytd-pnl.neg { color: var(--red); }
+
+.ibkr-ytd-stats {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  margin-top: 4px;
+  font-size: 11px;
+  color: var(--text-muted);
+}
+.ibkr-sep { color: var(--border-light); }
+.ibkr-comm { color: var(--red); opacity: 0.7; }
+
+.ibkr-sync-ts {
+  font-size: 10px;
+  color: var(--border-light);
+  margin-top: 4px;
+}
+
+/* Monthly list */
+.ibkr-monthly-list {
+  padding: 4px 12px 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.ibkr-month-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 7px 10px;
+  border-radius: var(--radius-sm);
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  cursor: pointer;
+  transition: var(--transition);
+  user-select: none;
+}
+.ibkr-month-row:hover { background: var(--bg-hover); border-color: var(--border-light); }
+.ibkr-month-row.open  { border-color: var(--accent); background: var(--accent-glow); }
+
+.ibkr-month-label {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-dim);
+  min-width: 44px;
+  text-transform: capitalize;
+}
+
+.ibkr-month-stats {
+  flex: 1;
+  font-size: 10px;
+  color: var(--text-muted);
+}
+
+.ibkr-month-pnl {
+  font-size: 12px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  min-width: 52px;
+  text-align: right;
+}
+.ibkr-month-pnl.pos { color: var(--green); }
+.ibkr-month-pnl.neg { color: var(--red); }
+
+.ibkr-chevron {
+  font-size: 9px;
+  color: var(--text-muted);
+  width: 10px;
+  text-align: center;
+}
+
+/* Expanded trade rows */
+.ibkr-trades-list {
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-top: none;
+  border-radius: 0 0 var(--radius-sm) var(--radius-sm);
+  margin-top: -3px;
+  padding: 4px 0;
+}
+
+.ibkr-trade-row {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  padding: 4px 10px;
+  font-size: 11px;
+  border-bottom: 1px solid var(--border);
+  transition: var(--transition);
+}
+.ibkr-trade-row:last-child { border-bottom: none; }
+.ibkr-trade-row:hover { background: var(--bg-hover); }
+
+.ibkr-trade-date {
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+  min-width: 36px;
+}
+.ibkr-trade-bs {
+  font-size: 9px;
+  font-weight: 700;
+  padding: 1px 4px;
+  border-radius: 3px;
+  min-width: 14px;
+  text-align: center;
+}
+.ibkr-trade-bs.buy  { background: rgba(34,197,94,0.15); color: var(--green); }
+.ibkr-trade-bs.sell { background: rgba(239,68,68,0.15); color: var(--red); }
+
+.ibkr-trade-sym {
+  flex: 1;
+  font-weight: 600;
+  color: var(--text);
+}
+.ibkr-trade-qty {
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+  min-width: 28px;
+  text-align: right;
+}
+.ibkr-trade-pnl {
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  min-width: 44px;
+  text-align: right;
+}
+.ibkr-trade-pnl.pos { color: var(--green); }
+.ibkr-trade-pnl.neg { color: var(--red); }
+.ibkr-trade-pnl.neutral { color: var(--text-muted); }
+
+.ibkr-trade-empty {
+  padding: 8px 10px;
+  font-size: 11px;
+  color: var(--text-muted);
+  text-align: center;
+}
+
+/* Current month quick row in trading tab */
+.ibkr-cm {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 12px;
+  margin: 4px 12px 0;
+  background: var(--bg-card);
+  border: 1px solid var(--border-light);
+  border-radius: var(--radius-sm);
+  font-size: 12px;
+}
+.ibkr-cm-label { color: var(--text-muted); flex: 1; }
+.ibkr-cm-pnl   { font-weight: 700; font-variant-numeric: tabular-nums; }
+.ibkr-cm-stats { color: var(--text-muted); font-size: 11px; }
+
+.ibkr-tbl-hint {
+  text-align: center;
+  font-size: 11px;
+  color: var(--text-muted);
+  padding: 12px 0 4px;
+  opacity: 0.7;
+}
+
+/* ================================================================
+   IBKR BOTTOM TABLE SECTION
+================================================================ */
+.ibkr-section {
+  background: var(--bg-panel);
+  border-top: 2px solid var(--border);
+  padding: 0 0 32px;
+}
+
+.ibkr-section-header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 14px 24px 12px;
+  border-bottom: 1px solid var(--border);
+}
+.ibkr-section-header h2 {
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: 0.5px;
+  text-transform: uppercase;
+  color: var(--text-muted);
+  flex: 1;
+}
+.ibkr-section-sync {
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
+.ibkr-tbl-empty {
+  padding: 32px;
+  text-align: center;
+  color: var(--text-muted);
+  font-size: 13px;
+}
+
+/* Main table */
+.ibkr-tbl {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+.ibkr-tbl thead th {
+  padding: 8px 16px;
+  text-align: left;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
+  border-bottom: 1px solid var(--border);
+  background: var(--bg);
+}
+.ibkr-tbl thead th.num { text-align: right; }
+
+.ibkr-tbl-month td {
+  padding: 10px 16px;
+  border-bottom: 1px solid var(--border);
+  cursor: pointer;
+  transition: background var(--transition);
+}
+.ibkr-tbl-month:hover td { background: var(--bg-hover); }
+.ibkr-tbl-month.open td  { background: var(--accent-glow); }
+
+.ibkr-tbl-month-name {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-weight: 600;
+  color: var(--text-dim);
+  text-transform: capitalize;
+}
+.ibkr-tbl-chevron {
+  color: var(--text-muted);
+  font-size: 11px;
+  width: 12px;
+}
+
+td.num  { text-align: right; font-variant-numeric: tabular-nums; }
+td.bold { font-weight: 700; }
+td.pos  { color: var(--green); }
+td.neg  { color: var(--red); }
+td.comm { color: var(--text-muted); font-size: 12px; }
+
+.ibkr-tbl-loading {
+  padding: 12px 32px;
+  color: var(--text-muted);
+  font-size: 12px;
+  font-style: italic;
+}
+
+/* Sub-table (individual trades) */
+.ibkr-tbl-sub {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12px;
+  background: var(--bg);
+}
+.ibkr-tbl-sub thead th {
+  padding: 6px 16px 6px 32px;
+  text-align: left;
+  font-size: 10px;
+  font-weight: 600;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
+  border-bottom: 1px solid var(--border);
+  background: var(--bg);
+}
+.ibkr-tbl-sub thead th.num { text-align: right; }
+.ibkr-tbl-sub tbody tr td {
+  padding: 6px 16px 6px 32px;
+  border-bottom: 1px solid var(--border);
+  color: var(--text-dim);
+}
+.ibkr-tbl-sub tbody tr:last-child td { border-bottom: none; }
+.ibkr-tbl-sub tbody tr:hover td { background: var(--bg-hover); }
+
+/* Raw trades table */
+.ibkr-raw-section { margin-top: 0; }
+.ibkr-raw-tbl { width: 100%; }
+.ibkr-raw-tbl thead th {
+  background: var(--bg-card);
+  color: var(--text-muted);
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
+  padding: 10px 16px;
+  border-bottom: 1px solid var(--border);
+  white-space: nowrap;
+}
+.ibkr-raw-tbl thead th.num { text-align: right; }
+.ibkr-raw-tbl tbody tr td {
+  padding: 9px 16px;
+  font-size: 12.5px;
+  border-bottom: 1px solid rgba(255,255,255,0.04);
+  white-space: nowrap;
+}
+.ibkr-raw-tbl tbody tr:hover td { background: var(--bg-hover); }
+
 /* ================================================================
    RESPONSIVE
 ================================================================ */
 @media (max-width: 1200px) {
-  .layout { grid-template-columns: 260px 1fr 240px; }
+  .layout { grid-template-columns: 260px 1fr 240px; position: static; }
   .panel-trading { display: none; }
+  .ibkr-section { display: block; }
 }
 @media (max-width: 900px) {
-  .layout { grid-template-columns: 1fr; overflow-y: auto; height: auto; }
+  .layout { grid-template-columns: 1fr; overflow-y: auto; height: auto; position: static; }
   .panel { border-right: none; border-bottom: 1px solid var(--border); height: auto; max-height: 50vh; }
   .panel-side { max-height: none; height: auto; }
   .side-section { max-height: 40vh; }
   .panel-trading { display: flex; max-height: 50vh; }
-  html, body { overflow: auto; }
+  .ibkr-tbl { font-size: 12px; }
+  .ibkr-tbl thead th, .ibkr-tbl-month td { padding: 8px; }
 }
