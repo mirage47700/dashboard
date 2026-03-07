@@ -65,6 +65,8 @@ textarea:focus, input:focus, select:focus { border-color: var(--accent); }
 .mc-hb.alive .mc-hb-dot { background: var(--pos); box-shadow: 0 0 6px var(--pos); animation: pulse-dot 2s infinite; }
 @keyframes pulse-dot { 0%,100% { opacity: 1; } 50% { opacity: 0.4; } }
 .mc-clock { font-size: 13px; color: var(--text-muted); font-variant-numeric: tabular-nums; }
+.mc-back-btn { font-size: 12px; color: var(--text-muted); text-decoration: none; padding: 4px 10px; border: 1px solid var(--border); border-radius: 6px; transition: color 0.15s, border-color 0.15s; }
+.mc-back-btn:hover { color: var(--text); border-color: var(--text-muted); }
 
 /* ================================================================
    TABS
