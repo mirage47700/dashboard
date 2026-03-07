@@ -18,6 +18,7 @@ from pydantic import BaseModel
 
 GOOGLE_CLIENT_ID     = os.getenv("GOOGLE_CLIENT_ID", "")
 GOOGLE_CLIENT_SECRET = os.getenv("GOOGLE_CLIENT_SECRET", "")
+GOOGLE_REDIRECT_URI  = os.getenv("GOOGLE_REDIRECT_URI", "")  # e.g. https://yourdomain.com/auth/google/callback
 NOTION_TOKEN         = os.getenv("NOTION_TOKEN", "")
 OPENROUTER_API_KEY   = os.getenv("OPENROUTER_API_KEY", "")
 GEMINI_API_KEY       = os.getenv("GEMINI_API_KEY", "")
@@ -122,6 +123,11 @@ async def lifespan(app: FastAPI):
 # ---------------------------------------------------------------------------
 
 app = FastAPI(title="VPS Dashboard", lifespan=lifespan)
+
+# Trust proxy headers from Cloudflare Tunnel so request.url_for() generates correct HTTPS URLs
+from uvicorn.middleware.proxy_headers import ProxyHeadersMiddleware
+app.add_middleware(ProxyHeadersMiddleware, trusted_hosts="*")
+
 app.mount("/static", StaticFiles(directory=BASE_DIR / "static"), name="static")
 templates = Jinja2Templates(directory=BASE_DIR / "templates")
 
@@ -503,11 +509,18 @@ def _persist_credentials(creds):
 GOOGLE_SCOPES = ["https://www.googleapis.com/auth/calendar.readonly"]
 
 
+def _get_redirect_uri(request: Request) -> str:
+    """Return the OAuth callback URI: env override > auto-detected from request."""
+    if GOOGLE_REDIRECT_URI:
+        return GOOGLE_REDIRECT_URI
+    return str(request.url_for("auth_google_callback"))
+
+
 @app.get("/auth/google")
 async def auth_google(request: Request):
     from google_auth_oauthlib.flow import Flow
     flow = Flow.from_client_config(_google_client_config(), scopes=GOOGLE_SCOPES)
-    flow.redirect_uri = str(request.url_for("auth_google_callback"))
+    flow.redirect_uri = _get_redirect_uri(request)
     # access_type=offline ensures we get a refresh_token; prompt=consent forces it even if already granted
     authorization_url, _ = flow.authorization_url(access_type="offline", prompt="consent")
     return RedirectResponse(authorization_url)
@@ -517,7 +530,7 @@ async def auth_google(request: Request):
 async def auth_google_callback(request: Request, code: str, state: str = ""):
     from google_auth_oauthlib.flow import Flow
     flow = Flow.from_client_config(_google_client_config(), scopes=GOOGLE_SCOPES)
-    flow.redirect_uri = str(request.url_for("auth_google_callback"))
+    flow.redirect_uri = _get_redirect_uri(request)
     flow.fetch_token(code=code)
     creds = flow.credentials
     token_data = {
@@ -530,7 +543,7 @@ async def auth_google_callback(request: Request, code: str, state: str = ""):
         "expiry":         creds.expiry.isoformat() if creds.expiry else None,
     }
     GOOGLE_TOKEN_PATH.write_text(json.dumps(token_data, indent=2))
-    return RedirectResponse("/")
+    return RedirectResponse("/mission-control/?tab=calendar")
 
 
 # ---------------------------------------------------------------------------
