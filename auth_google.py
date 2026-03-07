@@ -34,7 +34,13 @@ client_config = {
 }
 
 flow = InstalledAppFlow.from_client_config(client_config, scopes=SCOPES)
-creds = flow.run_console()
+
+auth_url, _ = flow.authorization_url(prompt="consent", access_type="offline")
+print("\nOuvre cette URL dans ton navigateur :")
+print(auth_url)
+code = input("\nColle ici le code d'autorisation : ").strip()
+flow.fetch_token(code=code)
+creds = flow.credentials
 
 token_data = {
     "token":         creds.token,
