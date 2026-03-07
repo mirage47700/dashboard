@@ -126,12 +126,16 @@ app.mount("/static", StaticFiles(directory=BASE_DIR / "static"), name="static")
 templates = Jinja2Templates(directory=BASE_DIR / "templates")
 
 # Mount Mission Control as sub-app
-import importlib.util as _ilu
-_mc_spec = _ilu.spec_from_file_location("mission_control_main", BASE_DIR / "mission-control" / "main.py")
-_mc_mod = _ilu.module_from_spec(_mc_spec)
-_mc_spec.loader.exec_module(_mc_mod)
-_mc_app = _mc_mod.app
-app.mount("/mission-control", _mc_app)
+try:
+    import importlib.util as _ilu
+    _mc_spec = _ilu.spec_from_file_location(
+        "mission_control_main", BASE_DIR / "mission-control" / "main.py"
+    )
+    _mc_mod = _ilu.module_from_spec(_mc_spec)
+    _mc_spec.loader.exec_module(_mc_mod)
+    app.mount("/mission-control", _mc_mod.app)
+except Exception as _e:
+    print(f"[mission-control] Impossible de monter le sub-app: {_e}")
 
 
 # ---------------------------------------------------------------------------

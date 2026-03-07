@@ -157,7 +157,9 @@ document.querySelectorAll('#eventModal .color-dot').forEach(btn => {
 // TASKS
 // ---------------------------------------------------------------------------
 async function loadTasks() {
-  allTasks = await api('/api/tasks');
+  try {
+    allTasks = await api('/api/tasks');
+  } catch(e) { allTasks = []; }
   renderTasks();
 }
 
@@ -278,7 +280,7 @@ document.querySelectorAll('.filter-btn').forEach(btn => {
 // ---------------------------------------------------------------------------
 async function loadEvents() {
   const [localEvents, googleEvents] = await Promise.all([
-    api('/api/events'),
+    api('/api/events').catch(() => []),
     api('/api/events/google').catch(() => []),
   ]);
   allEvents = [...localEvents, ...googleEvents].sort(
@@ -1003,4 +1005,4 @@ function renderIbkrRaw() {
   container.innerHTML = html;
 }
 
-init();
+init().catch(e => console.error('[dashboard] init error:', e));
