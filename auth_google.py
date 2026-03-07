@@ -44,7 +44,7 @@ print("\nApres autorisation, ton navigateur tentera d'ouvrir http://localhost/?c
 print("Cette page ne chargera pas — c'est normal.")
 print("Copie le parametre 'code' depuis l'URL de la barre d'adresse.\n")
 code = input("Colle ici le code : ").strip()
-flow.fetch_token(code=code, redirect_uri="http://localhost")
+flow.fetch_token(code=code)
 creds = flow.credentials
 
 token_data = {
