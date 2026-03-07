@@ -98,6 +98,11 @@ def init_db():
             pnl REAL DEFAULT 0,
             synced_at TEXT DEFAULT (datetime('now'))
         );
+        CREATE TABLE IF NOT EXISTS ibkr_summary (
+            key TEXT PRIMARY KEY,
+            value TEXT,
+            updated_at TEXT DEFAULT (datetime('now'))
+        );
     """)
     conn.commit()
     conn.close()
@@ -949,6 +954,34 @@ async def _fetch_ibkr_trades() -> dict:
                 "pnl":            safe_float(trade_el.get("fifoPnlRealized")),
             })
 
+        # ---- Ending Value (EquitySummaryByReportDateInBase, last entry) ----
+        summary_updates = {}
+        equity_els = list(tree.iter("EquitySummaryByReportDateInBase"))
+        if equity_els:
+            last_eq = equity_els[-1]
+            ending_val = last_eq.get("total") or last_eq.get("endingValue")
+            if ending_val:
+                summary_updates["ending_value"] = ending_val
+                print(f"[IBKR] EndingValue={ending_val}")
+
+        # ---- TWR (ChangeInNAV section) -------------------------------------
+        for nav_el in tree.iter("ChangeInNAV"):
+            twr = nav_el.get("twr")
+            if twr:
+                summary_updates["twr_ytd"] = twr
+                print(f"[IBKR] TWR={twr}")
+                break
+
+        if summary_updates:
+            conn_s = get_db()
+            for k, v in summary_updates.items():
+                conn_s.execute(
+                    "INSERT OR REPLACE INTO ibkr_summary (key, value, updated_at) VALUES (?, ?, datetime('now'))",
+                    (k, v),
+                )
+            conn_s.commit()
+            conn_s.close()
+
     conn = get_db()
     inserted = 0
     updated = 0
@@ -1040,7 +1073,13 @@ def get_ibkr_perf():
     ).fetchall()
 
     last_sync = conn.execute("SELECT MAX(synced_at) as ts FROM ibkr_trades").fetchone()
+    summary_rows = conn.execute("SELECT key, value FROM ibkr_summary").fetchall()
     conn.close()
+
+    summary = {r["key"]: r["value"] for r in summary_rows}
+    ending_value = float(summary["ending_value"]) if summary.get("ending_value") else None
+    twr_raw = summary.get("twr_ytd")
+    twr_ytd = float(twr_raw) if twr_raw else None
 
     monthly = []
     for r in monthly_rows:
@@ -1066,6 +1105,11 @@ def get_ibkr_perf():
             "trades":     len(ytd_rows),
             "wins":       ytd_wins,
             "win_rate":   round(ytd_wins / len(closed_ytd) * 100, 1) if closed_ytd else 0,
+            "twr":        round(twr_ytd * 100, 2) if twr_ytd is not None else None,
+        },
+        "portfolio": {
+            "ending_value": round(ending_value, 2) if ending_value is not None else None,
+            "twr_ytd_pct":  round(twr_ytd * 100, 2) if twr_ytd is not None else None,
         },
         "monthly":   monthly,
         "last_sync": last_sync["ts"] if last_sync else None,
