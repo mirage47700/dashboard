@@ -595,13 +595,21 @@ function renderIbkrChip() {
   if (old) old.remove();
   if (!ibkrPerf || !ibkrPerf.ytd) return;
   const ytd = ibkrPerf.ytd;
-  if (!ytd.trades) return;
-  const net = ytd.pnl_net;
-  const sign = net >= 0 ? '+' : '';
-  const cls  = net >= 0 ? 'chip-success' : 'chip-danger';
+  const port = ibkrPerf.portfolio || {};
+  if (!ytd.trades && port.ending_value == null) return;
   const chip = document.createElement('div');
-  chip.className = `chip ${cls} chip-ibkr`;
-  chip.innerHTML = `YTD <strong>${sign}$${Math.abs(net).toFixed(0)}</strong> · ${ytd.win_rate}%`;
+  if (port.ending_value != null) {
+    const twr = ytd.twr != null ? ` · TWR ${ytd.twr >= 0 ? '+' : ''}${ytd.twr.toFixed(2)}%` : '';
+    const cls = (ytd.twr ?? ytd.pnl_net) >= 0 ? 'chip-success' : 'chip-danger';
+    chip.className = `chip ${cls} chip-ibkr`;
+    chip.innerHTML = `Solde <strong>$${port.ending_value.toLocaleString('fr-FR')}</strong>${twr}`;
+  } else {
+    const net = ytd.pnl_net;
+    const sign = net >= 0 ? '+' : '';
+    const cls  = net >= 0 ? 'chip-success' : 'chip-danger';
+    chip.className = `chip ${cls} chip-ibkr`;
+    chip.innerHTML = `YTD <strong>${sign}$${Math.abs(net).toFixed(0)}</strong> · ${ytd.win_rate}%`;
+  }
   chips.prepend(chip);
 }
 
@@ -671,14 +679,15 @@ function renderIbkrTable() {
           const tCls   = t.pnl > 0 ? 'pos' : t.pnl < 0 ? 'neg' : '';
           const tSign  = t.pnl >= 0 ? '+' : '';
           const bsCls  = t.buy_sell === 'BUY' ? 'buy' : 'sell';
+          const fillsBadge = t.fills > 1 ? `<span class="ibkr-fills-badge" title="${t.fills} fills">${t.fills}</span>` : '';
           html += `<tr>
             <td>${t.trade_date || '—'}</td>
             <td><span class="ibkr-trade-bs ${bsCls}">${t.buy_sell === 'BUY' ? 'Achat' : 'Vente'}</span></td>
-            <td class="bold">${escHtml(t.symbol || '—')}</td>
+            <td class="bold">${escHtml(t.symbol || '—')}${fillsBadge}</td>
             <td class="num">${t.quantity}</td>
-            <td class="num">$${t.price.toFixed(2)}</td>
+            <td class="num">$${(t.price || 0).toFixed(2)}</td>
             <td class="num ${tCls}">${t.pnl !== 0 ? `${tSign}$${Math.abs(t.pnl).toFixed(2)}` : '—'}</td>
-            <td class="num comm">-$${Math.abs(t.commission).toFixed(2)}</td>
+            <td class="num comm">-$${Math.abs(t.commission || 0).toFixed(2)}</td>
           </tr>`;
         }
         html += `</tbody></table></td></tr>`;
@@ -741,8 +750,24 @@ function renderIbkr() {
     </div>`;
   })() : '';
 
+  const port = ibkrPerf.portfolio || {};
+  const twrHtml = ytd.twr != null
+    ? `<div class="ibkr-ytd-row">
+        <span class="ibkr-ytd-label">TWR YTD</span>
+        <span class="ibkr-ytd-pnl ${ytd.twr >= 0 ? 'pos' : 'neg'}">${ytd.twr >= 0 ? '+' : ''}${ytd.twr.toFixed(2)}%</span>
+       </div>`
+    : '';
+  const soldeHtml = port.ending_value != null
+    ? `<div class="ibkr-ytd-row">
+        <span class="ibkr-ytd-label">Solde</span>
+        <span class="ibkr-ytd-solde">$${port.ending_value.toLocaleString('fr-FR')}</span>
+       </div>`
+    : '';
+
   el.innerHTML = `
     <div class="ibkr-ytd">
+      ${soldeHtml}
+      ${twrHtml}
       <div class="ibkr-ytd-row">
         <span class="ibkr-ytd-label">YTD net</span>
         <span class="ibkr-ytd-pnl ${pnlClass}">${pnlSign}$${Math.abs(ytd.pnl_net).toFixed(0)}</span>

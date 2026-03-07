@@ -85,6 +85,7 @@ def init_db():
         CREATE TABLE IF NOT EXISTS ibkr_trades (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             trade_id TEXT UNIQUE,
+            order_id TEXT,
             symbol TEXT,
             asset_category TEXT,
             currency TEXT DEFAULT 'USD',
@@ -105,6 +106,12 @@ def init_db():
         );
     """)
     conn.commit()
+    # Migration: add order_id if missing (existing deployments)
+    try:
+        conn.execute("ALTER TABLE ibkr_trades ADD COLUMN order_id TEXT")
+        conn.commit()
+    except Exception:
+        pass
     conn.close()
 
 
@@ -907,6 +914,7 @@ async def _fetch_ibkr_trades() -> dict:
             date_time_raw = row.get("DateTime", trade_date).replace(";", " ")
             trades.append({
                 "trade_id":       trade_id,
+                "order_id":       row.get("IBOrderID", row.get("OrderID", "")),
                 "symbol":         row.get("Symbol", ""),
                 "asset_category": row.get("AssetClass", row.get("AssetCategory", "")),
                 "currency":       row.get("CurrencyPrimary", row.get("Currency", "USD")),
@@ -941,6 +949,7 @@ async def _fetch_ibkr_trades() -> dict:
             date_time_raw = trade_el.get("dateTime", "").replace(";", " ")
             trades.append({
                 "trade_id":       trade_el.get("tradeID") or trade_el.get("transactionID"),
+                "order_id":       trade_el.get("ibOrderID") or trade_el.get("orderID", ""),
                 "symbol":         trade_el.get("symbol", ""),
                 "asset_category": trade_el.get("assetCategory", ""),
                 "currency":       trade_el.get("currency", "USD"),
@@ -991,11 +1000,11 @@ async def _fetch_ibkr_trades() -> dict:
         ).fetchone()
         if existing:
             conn.execute(
-                """UPDATE ibkr_trades SET symbol=?, asset_category=?, currency=?,
+                """UPDATE ibkr_trades SET order_id=?, symbol=?, asset_category=?, currency=?,
                    trade_date=?, date_time=?, buy_sell=?, quantity=?, price=?,
                    proceeds=?, commission=?, pnl=?, synced_at=datetime('now')
                    WHERE trade_id=?""",
-                (t["symbol"], t["asset_category"], t["currency"],
+                (t.get("order_id"), t["symbol"], t["asset_category"], t["currency"],
                  t["trade_date"], t["date_time"], t["buy_sell"],
                  t["quantity"], t["price"], t["proceeds"], t["commission"],
                  t["pnl"], t["trade_id"]),
@@ -1004,10 +1013,10 @@ async def _fetch_ibkr_trades() -> dict:
         else:
             conn.execute(
                 """INSERT INTO ibkr_trades
-                   (trade_id, symbol, asset_category, currency, trade_date, date_time,
+                   (trade_id, order_id, symbol, asset_category, currency, trade_date, date_time,
                     buy_sell, quantity, price, proceeds, commission, pnl)
-                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
-                (t["trade_id"], t["symbol"], t["asset_category"], t["currency"],
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                (t["trade_id"], t.get("order_id"), t["symbol"], t["asset_category"], t["currency"],
                  t["trade_date"], t["date_time"], t["buy_sell"],
                  t["quantity"], t["price"], t["proceeds"], t["commission"], t["pnl"]),
             )
@@ -1118,20 +1127,60 @@ def get_ibkr_perf():
 
 @app.get("/api/ibkr/trades")
 def get_ibkr_trades(month: Optional[str] = None, limit: int = 100):
-    """Return IBKR trades, optionally filtered by month (YYYY-MM)."""
+    """Return IBKR trades grouped by order_id, optionally filtered by month (YYYY-MM)."""
     conn = get_db()
     if month:
         rows = conn.execute(
-            "SELECT * FROM ibkr_trades WHERE trade_date LIKE ? ORDER BY date_time DESC LIMIT ?",
-            (f"{month}%", limit),
+            "SELECT * FROM ibkr_trades WHERE trade_date LIKE ? ORDER BY date_time ASC",
+            (f"{month}%",),
         ).fetchall()
     else:
         rows = conn.execute(
-            "SELECT * FROM ibkr_trades ORDER BY date_time DESC LIMIT ?",
+            "SELECT * FROM ibkr_trades ORDER BY date_time ASC LIMIT ?",
             (limit,),
         ).fetchall()
     conn.close()
-    return [dict(r) for r in rows]
+
+    # Group fills by order_id; fall back to individual rows when order_id is absent
+    from collections import defaultdict
+    order_map: dict = {}
+    ungrouped = []
+    for r in rows:
+        rd = dict(r)
+        oid = rd.get("order_id")
+        if oid:
+            if oid not in order_map:
+                order_map[oid] = []
+            order_map[oid].append(rd)
+        else:
+            ungrouped.append(rd)
+
+    result = []
+    for oid, fills in order_map.items():
+        total_qty  = sum(f["quantity"] or 0 for f in fills)
+        total_proc = sum(f["proceeds"] or 0 for f in fills)
+        total_comm = sum(f["commission"] or 0 for f in fills)
+        total_pnl  = sum(f["pnl"] or 0 for f in fills)
+        avg_price  = abs(total_proc / total_qty) if total_qty else fills[0]["price"]
+        first = fills[0]
+        result.append({
+            "order_id":       oid,
+            "symbol":         first["symbol"],
+            "asset_category": first["asset_category"],
+            "currency":       first["currency"],
+            "trade_date":     first["trade_date"],
+            "date_time":      first["date_time"],
+            "buy_sell":       first["buy_sell"],
+            "quantity":       round(total_qty, 4),
+            "price":          round(avg_price, 4),
+            "proceeds":       round(total_proc, 2),
+            "commission":     round(total_comm, 2),
+            "pnl":            round(total_pnl, 2),
+            "fills":          len(fills),
+        })
+    result.extend(ungrouped)
+    result.sort(key=lambda x: x.get("date_time", ""), reverse=True)
+    return result
 
 
 # ---------------------------------------------------------------------------

@@ -986,6 +986,12 @@ html, body {
 }
 .ibkr-ytd-pnl.pos { color: var(--green); }
 .ibkr-ytd-pnl.neg { color: var(--red); }
+.ibkr-ytd-solde {
+  font-size: 20px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  color: var(--text);
+}
 
 .ibkr-ytd-stats {
   display: flex;
@@ -1095,6 +1101,17 @@ html, body {
 }
 .ibkr-trade-bs.buy  { background: rgba(34,197,94,0.15); color: var(--green); }
 .ibkr-trade-bs.sell { background: rgba(239,68,68,0.15); color: var(--red); }
+.ibkr-fills-badge {
+  display: inline-block;
+  margin-left: 4px;
+  padding: 1px 5px;
+  background: var(--border-light);
+  color: var(--text-muted);
+  border-radius: 8px;
+  font-size: 10px;
+  font-weight: 600;
+  vertical-align: middle;
+}
 
 .ibkr-trade-sym {
   flex: 1;
