@@ -125,6 +125,12 @@ app = FastAPI(title="VPS Dashboard", lifespan=lifespan)
 app.mount("/static", StaticFiles(directory=BASE_DIR / "static"), name="static")
 templates = Jinja2Templates(directory=BASE_DIR / "templates")
 
+# Mount Mission Control as sub-app
+import sys as _sys
+_sys.path.insert(0, str(BASE_DIR))
+from mission_control.main import app as _mc_app
+app.mount("/mission-control", _mc_app)
+
 
 # ---------------------------------------------------------------------------
 # Models

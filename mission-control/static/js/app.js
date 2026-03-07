@@ -61,7 +61,7 @@ function switchTab(tab) {
 let activityItems = [];
 
 function initSSE() {
-  const es = new EventSource('/events');
+  const es = new EventSource('/mission-control/events');
   es.onmessage = e => {
     try { handleEvent(JSON.parse(e.data)); } catch (_) {}
   };
@@ -95,7 +95,7 @@ function updateHeartbeatUI(data) {
 // ---------------------------------------------------------------------------
 async function pollHeartbeat() {
   try {
-    const rows = await api('/api/heartbeat');
+    const rows = await api('/mission-control/api/heartbeat');
     if (rows.length) {
       const latest = rows.sort((a,b) => b.last_beat.localeCompare(a.last_beat))[0];
       updateHeartbeatUI({ agent: latest.agent, timestamp: latest.last_beat });
@@ -112,7 +112,7 @@ let draggedId = null;
 async function loadBoard() {
   const agent = $('boardAgentFilter')?.value || '';
   const params = agent ? `?assigned_to=${encodeURIComponent(agent)}` : '';
-  try { allTasks = await api(`/api/tasks${params}`); } catch(_) { allTasks = []; }
+  try { allTasks = await api(`/mission-control/api/tasks${params}`); } catch(_) { allTasks = []; }
   renderBoard();
   await loadActivity();
 }
@@ -155,7 +155,7 @@ async function dropTask(event, newStatus) {
   event.preventDefault();
   if (!draggedId) return;
   try {
-    await api(`/api/tasks/${draggedId}/status`, 'PATCH', { status: newStatus });
+    await api(`/mission-control/api/tasks/${draggedId}/status`, 'PATCH', { status: newStatus });
     await loadBoard();
   } catch(_) {}
   draggedId = null;
@@ -165,7 +165,7 @@ async function dropTask(event, newStatus) {
 // ACTIVITY
 // ---------------------------------------------------------------------------
 async function loadActivity() {
-  try { activityItems = await api('/api/activity?limit=30'); } catch(_) { activityItems = []; }
+  try { activityItems = await api('/mission-control/api/activity?limit=30'); } catch(_) { activityItems = []; }
   renderActivity();
 }
 
@@ -198,7 +198,7 @@ async function loadCalendar() {
   const container = $('cronContainer');
   if (!container) return;
   try {
-    const jobs = await api('/api/cron');
+    const jobs = await api('/mission-control/api/cron');
     if (!jobs.length) {
       container.innerHTML = '<div class="cron-empty">Aucun cron job trouve (crontab vide)</div>';
       return;
@@ -229,7 +229,7 @@ async function loadCalendar() {
 let allProjects = [];
 
 async function loadProjects() {
-  try { allProjects = await api('/api/projects'); } catch(_) { allProjects = []; }
+  try { allProjects = await api('/mission-control/api/projects'); } catch(_) { allProjects = []; }
   renderProjects();
 }
 
@@ -268,7 +268,7 @@ async function loadMemories() {
   if (!el) return;
   el.innerHTML = '<div style="color:#64748b;padding:20px">Chargement...</div>';
   try {
-    const days = await api('/api/memories');
+    const days = await api('/mission-control/api/memories');
     if (!days.length) {
       el.innerHTML = '<div style="color:#64748b;padding:40px;text-align:center">Aucune memoire trouvee dans memories.md</div>';
       return;
@@ -292,7 +292,7 @@ async function loadMemories() {
 let allDocs = [];
 
 async function loadDocs() {
-  try { allDocs = await api('/api/docs'); } catch(_) { allDocs = []; }
+  try { allDocs = await api('/mission-control/api/docs'); } catch(_) { allDocs = []; }
   renderDocs(allDocs);
 }
 
@@ -331,7 +331,7 @@ function renderDocs(docs) {
 let allMembers = [];
 
 async function loadTeam() {
-  try { allMembers = await api('/api/team'); } catch(_) { allMembers = []; }
+  try { allMembers = await api('/mission-control/api/team'); } catch(_) { allMembers = []; }
   renderTeam();
 }
 
@@ -451,8 +451,8 @@ async function saveTask() {
   };
   if (!body.title) return;
   try {
-    if (editTaskId) await api(`/api/tasks/${editTaskId}`, 'PUT', body);
-    else            await api('/api/tasks', 'POST', body);
+    if (editTaskId) await api(`/mission-control/api/tasks/${editTaskId}`, 'PUT', body);
+    else            await api('/mission-control/api/tasks', 'POST', body);
     closeModal('taskModal');
     await loadBoard();
   } catch(e) { alert('Erreur: ' + e.message); }
@@ -461,7 +461,7 @@ async function saveTask() {
 async function deleteTask() {
   if (!editTaskId || !confirm('Supprimer cette tache ?')) return;
   try {
-    await api(`/api/tasks/${editTaskId}`, 'DELETE');
+    await api(`/mission-control/api/tasks/${editTaskId}`, 'DELETE');
     closeModal('taskModal');
     await loadBoard();
   } catch(e) { alert('Erreur: ' + e.message); }
@@ -503,8 +503,8 @@ async function saveProject() {
   };
   if (!body.name) return;
   try {
-    if (editProjectId) await api(`/api/projects/${editProjectId}`, 'PUT', body);
-    else               await api('/api/projects', 'POST', body);
+    if (editProjectId) await api(`/mission-control/api/projects/${editProjectId}`, 'PUT', body);
+    else               await api('/mission-control/api/projects', 'POST', body);
     closeModal('projectModal');
     await loadProjects();
   } catch(e) { alert('Erreur: ' + e.message); }
@@ -545,8 +545,8 @@ async function saveDoc() {
   };
   if (!body.title) return;
   try {
-    if (editDocId) await api(`/api/docs/${editDocId}`, 'PUT', body);
-    else           await api('/api/docs', 'POST', body);
+    if (editDocId) await api(`/mission-control/api/docs/${editDocId}`, 'PUT', body);
+    else           await api('/mission-control/api/docs', 'POST', body);
     closeModal('docModal');
     await loadDocs();
   } catch(e) { alert('Erreur: ' + e.message); }
@@ -555,7 +555,7 @@ async function saveDoc() {
 async function deleteDoc() {
   if (!editDocId || !confirm('Supprimer ce document ?')) return;
   try {
-    await api(`/api/docs/${editDocId}`, 'DELETE');
+    await api(`/mission-control/api/docs/${editDocId}`, 'DELETE');
     closeModal('docModal');
     await loadDocs();
   } catch(e) { alert('Erreur: ' + e.message); }
@@ -614,8 +614,8 @@ async function saveMember() {
   };
   if (!body.name) return;
   try {
-    if (editMemberId) await api(`/api/team/${editMemberId}`, 'PUT', body);
-    else              await api('/api/team', 'POST', body);
+    if (editMemberId) await api(`/mission-control/api/team/${editMemberId}`, 'PUT', body);
+    else              await api('/mission-control/api/team', 'POST', body);
     closeModal('teamModal');
     await loadTeam();
     renderOffice();
@@ -625,7 +625,7 @@ async function saveMember() {
 async function deleteMember() {
   if (!editMemberId || !confirm('Supprimer cet agent ?')) return;
   try {
-    await api(`/api/team/${editMemberId}`, 'DELETE');
+    await api(`/mission-control/api/team/${editMemberId}`, 'DELETE');
     closeModal('teamModal');
     await loadTeam();
     renderOffice();
