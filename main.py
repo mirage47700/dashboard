@@ -853,14 +853,15 @@ async def _fetch_ibkr_trades() -> dict:
             r2 = await client.get(get_url)
             try:
                 root2 = ET.fromstring(r2.text)
-                err_code = root2.findtext("ErrorCode")
-                if err_code in ("1019", "1018"):  # statement generation in progress
-                    continue
-                if root2.tag == "FlexStatementResponse":
-                    err_msg = root2.findtext("ErrorMessage") or "Unknown"
-                    return {"error": f"IBKR GetStatement error: {err_msg}"}
-            except ET.ParseError:
-                pass
+            except ET.ParseError as e:
+                print(f"[IBKR] ParseError attempt {attempt}: {e} | content[:200]: {r2.text[:200]!r}")
+                continue
+            err_code = root2.findtext("ErrorCode")
+            if err_code in ("1019", "1018"):  # statement generation in progress
+                continue
+            if root2.tag == "FlexStatementResponse" or err_code:
+                err_msg = root2.findtext("ErrorMessage") or f"code={err_code}"
+                return {"error": f"IBKR GetStatement error: {err_msg}"}
             xml_content = r2.text
             break
 
