@@ -67,6 +67,15 @@ textarea:focus, input:focus, select:focus { border-color: var(--accent); }
 .mc-clock { font-size: 13px; color: var(--text-muted); font-variant-numeric: tabular-nums; }
 .mc-back-btn { font-size: 12px; color: var(--text-muted); text-decoration: none; padding: 4px 10px; border: 1px solid var(--border); border-radius: 6px; transition: color 0.15s, border-color 0.15s; }
 .mc-back-btn:hover { color: var(--text); border-color: var(--text-muted); }
+.mc-metrics { display: flex; gap: 8px; }
+.mc-metric {
+  font-size: 12px; font-weight: 600; padding: 4px 10px;
+  border-radius: 6px; background: var(--bg-card);
+  border: 1px solid var(--border);
+  font-variant-numeric: tabular-nums; color: var(--text-muted);
+}
+.mc-metric.pos { color: var(--pos); border-color: rgba(34,197,94,0.3); background: rgba(34,197,94,0.08); }
+.mc-metric.neg { color: var(--neg); border-color: rgba(239,68,68,0.3); background: rgba(239,68,68,0.08); }
 
 /* ================================================================
    TABS
@@ -211,12 +220,78 @@ textarea:focus, input:focus, select:focus { border-color: var(--accent); }
 /* ================================================================
    CALENDAR
 ================================================================ */
-.cron-table { width: 100%; border-collapse: collapse; }
-.cron-table th, .cron-table td { padding: 10px 16px; text-align: left; border-bottom: 1px solid var(--border); font-size: 13px; }
-.cron-table th { color: var(--text-muted); font-size: 11px; text-transform: uppercase; letter-spacing: 0.4px; background: var(--bg-panel); }
-.cron-table td:first-child { font-family: monospace; color: var(--accent); font-size: 12px; }
-.cron-human { color: var(--text-muted); font-size: 11px; margin-top: 2px; }
-.cron-empty { padding: 40px; text-align: center; color: var(--text-muted); }
+.cal-nav-btns { display: flex; align-items: center; gap: 6px; }
+.cal-nav-btns span { min-width: 150px; text-align: center; font-weight: 500; font-size: 14px; text-transform: capitalize; }
+.cal-layout { display: grid; grid-template-columns: 1fr 300px; gap: 16px; align-items: flex-start; }
+.cal-grid-section { background: var(--bg-panel); border: 1px solid var(--border); border-radius: var(--radius); overflow: hidden; }
+.cal-grid-hdr {
+  display: grid; grid-template-columns: repeat(7, 1fr);
+  background: var(--bg-card);
+  border-bottom: 1px solid var(--border);
+}
+.cal-grid-hdr > div { padding: 10px; text-align: center; font-size: 11px; font-weight: 600; color: var(--text-muted); text-transform: uppercase; }
+.cal-grid-body { display: grid; grid-template-columns: repeat(7, 1fr); }
+.cal-cell {
+  aspect-ratio: 1; display: flex; align-items: center; justify-content: center;
+  font-size: 13px; cursor: pointer; border: 1px solid transparent;
+  transition: background 0.1s; position: relative;
+}
+.cal-cell:hover { background: var(--bg-hover); }
+.cal-cell.other { color: var(--text-muted); opacity: 0.35; cursor: default; }
+.cal-cell.today { font-weight: 700; color: var(--accent); }
+.cal-cell.selected { background: rgba(79,142,247,0.15); border-color: var(--accent); border-radius: 4px; color: var(--accent); }
+.cal-cell.has-event::after {
+  content: ''; position: absolute; bottom: 4px; left: 50%; transform: translateX(-50%);
+  width: 4px; height: 4px; border-radius: 50%; background: var(--text-muted);
+}
+.cal-cell.has-google::after { background: #4285f4; }
+
+.cal-day-panel {
+  background: var(--bg-panel); border: 1px solid var(--border); border-radius: var(--radius);
+  display: flex; flex-direction: column; overflow: hidden;
+}
+.cal-day-title {
+  padding: 14px 16px; font-size: 13px; font-weight: 600;
+  border-bottom: 1px solid var(--border); text-transform: capitalize;
+}
+.cal-events-list { padding: 10px; display: flex; flex-direction: column; gap: 8px; min-height: 120px; }
+.cal-empty { padding: 20px; text-align: center; color: var(--text-muted); font-size: 12px; }
+.cal-event-item {
+  display: flex; gap: 10px; align-items: flex-start;
+  background: var(--bg-card); border-radius: 6px; padding: 10px 12px;
+  border-left: 3px solid var(--accent);
+}
+.cal-event-item.google { border-left-color: #4285f4; }
+.cal-event-time { font-size: 11px; color: var(--text-muted); min-width: 40px; font-variant-numeric: tabular-nums; margin-top: 1px; }
+.cal-event-title { font-size: 13px; font-weight: 500; }
+.cal-event-desc { font-size: 11px; color: var(--text-muted); margin-top: 2px; }
+
+/* ================================================================
+   IBKR
+================================================================ */
+.ibkr-stats {
+  display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  gap: 12px; margin-bottom: 20px;
+}
+.ibkr-stat {
+  background: var(--bg-panel); border: 1px solid var(--border);
+  border-radius: var(--radius); padding: 16px;
+}
+.ibkr-stat-label { font-size: 11px; color: var(--text-muted); font-weight: 500; text-transform: uppercase; letter-spacing: 0.4px; margin-bottom: 6px; }
+.ibkr-stat-val { font-size: 20px; font-weight: 700; font-variant-numeric: tabular-nums; }
+.ibkr-stat-val.pos { color: var(--pos); }
+.ibkr-stat-val.neg { color: var(--neg); }
+
+.ibkr-monthly { margin-bottom: 20px; }
+.ibkr-trades  { }
+.ibkr-table { width: 100%; border-collapse: collapse; }
+.ibkr-table th { padding: 9px 14px; text-align: left; border-bottom: 1px solid var(--border); font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.4px; color: var(--text-muted); background: var(--bg-panel); }
+.ibkr-table td { padding: 8px 14px; border-bottom: 1px solid rgba(255,255,255,0.04); font-size: 12px; }
+.ibkr-table tr:hover td { background: var(--bg-hover); }
+.ibkr-table .pos { color: var(--pos); }
+.ibkr-table .neg { color: var(--neg); }
+.ibkr-table .muted { color: var(--text-muted); }
+.ibkr-empty { padding: 40px; text-align: center; color: var(--text-muted); font-size: 13px; }
 
 /* ================================================================
    PROJECTS

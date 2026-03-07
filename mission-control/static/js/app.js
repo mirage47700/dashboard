@@ -38,7 +38,7 @@ updateClock();
 // ---------------------------------------------------------------------------
 // Tabs
 // ---------------------------------------------------------------------------
-const TABS = ['board','calendar','projects','memories','docs','team','office'];
+const TABS = ['board','calendar','ibkr','projects','memories','docs','team','office'];
 let currentTab = 'board';
 
 function switchTab(tab) {
@@ -48,6 +48,7 @@ function switchTab(tab) {
   });
   currentTab = tab;
   if (tab === 'calendar')  loadCalendar();
+  if (tab === 'ibkr')      loadIbkr();
   if (tab === 'projects')  loadProjects();
   if (tab === 'memories')  loadMemories();
   if (tab === 'docs')      loadDocs();
@@ -192,35 +193,235 @@ function prependActivity(item) {
 }
 
 // ---------------------------------------------------------------------------
-// CALENDAR
+// HEADER METRICS
 // ---------------------------------------------------------------------------
-async function loadCalendar() {
-  const container = $('cronContainer');
-  if (!container) return;
+async function loadHeaderMetrics() {
   try {
-    const jobs = await api('/mission-control/api/cron');
-    if (!jobs.length) {
-      container.innerHTML = '<div class="cron-empty">Aucun cron job trouve (crontab vide)</div>';
-      return;
+    const [usage, perf] = await Promise.all([
+      api('/api/usage').catch(() => null),
+      api('/api/ibkr/perf').catch(() => null),
+    ]);
+
+    const orEl = $('metricOR');
+    if (orEl && usage?.openrouter?.connected) {
+      const rem = usage.openrouter.remaining_credits ?? 0;
+      orEl.textContent = `OR $${rem.toFixed(2)}`;
+      orEl.className = 'mc-metric';
     }
-    container.innerHTML = `
-      <table class="cron-table">
-        <thead><tr><th>Schedule</th><th>Description</th><th>Commande</th></tr></thead>
-        <tbody>${jobs.map(j => `
-          <tr>
-            <td>
-              <div>${escHtml(j.schedule)}</div>
-              ${j.human ? `<div class="cron-human">${escHtml(j.human)}</div>` : ''}
-            </td>
-            <td>${escHtml(j.human || '—')}</td>
-            <td><code style="font-size:11px;color:#a0aec0">${escHtml(j.command)}</code></td>
-          </tr>
-        `).join('')}</tbody>
-      </table>
-    `;
-  } catch(_) {
-    container.innerHTML = '<div class="cron-empty">Erreur de lecture crontab</div>';
+
+    const pnlEl = $('metricPnl');
+    if (pnlEl && perf?.ytd) {
+      const pnl = perf.ytd.pnl_net ?? 0;
+      pnlEl.textContent = `YTD ${pnl >= 0 ? '+' : ''}$${pnl.toFixed(0)}`;
+      pnlEl.className = `mc-metric ${pnl >= 0 ? 'pos' : 'neg'}`;
+    }
+  } catch(_) {}
+}
+
+// ---------------------------------------------------------------------------
+// CALENDAR (Google Calendar)
+// ---------------------------------------------------------------------------
+let calYear = new Date().getFullYear();
+let calMonth = new Date().getMonth();
+let calSelectedDate = new Date().toISOString().split('T')[0];
+let calEvents = [];
+
+async function loadCalendar() {
+  const start = new Date(calYear, calMonth, 1).toISOString();
+  const end   = new Date(calYear, calMonth + 1, 0, 23, 59).toISOString();
+  try {
+    const [local, google] = await Promise.all([
+      api(`/api/events`).catch(() => []),
+      api(`/api/events/google?start=${encodeURIComponent(start)}&end=${encodeURIComponent(end)}`).catch(() => []),
+    ]);
+    // Check google auth status
+    const status = await api('/api/google/status').catch(() => ({ connected: false }));
+    const btn = $('gcalConnectBtn');
+    if (btn) btn.style.display = status.connected ? 'none' : '';
+
+    calEvents = [...local, ...google].sort((a, b) => new Date(a.start_datetime) - new Date(b.start_datetime));
+  } catch(_) { calEvents = []; }
+  renderCalGrid();
+  renderCalDay();
+}
+
+function renderCalGrid() {
+  const body  = $('calGridBody');
+  const label = $('calMonthLabel');
+  if (!body) return;
+
+  const firstDay = new Date(calYear, calMonth, 1);
+  const lastDay  = new Date(calYear, calMonth + 1, 0);
+  const startDow = (firstDay.getDay() + 6) % 7;
+  const todayStr = new Date().toISOString().split('T')[0];
+
+  if (label) label.textContent = firstDay.toLocaleDateString('fr-FR', { month: 'long', year: 'numeric' });
+
+  const eventDays = new Set(calEvents.map(e => e.start_datetime.split('T')[0]));
+  const googleDays = new Set(calEvents.filter(e => e.source === 'google').map(e => e.start_datetime.split('T')[0]));
+
+  let html = '';
+  for (let i = 0; i < startDow; i++) html += '<div class="cal-cell other"></div>';
+  for (let d = 1; d <= lastDay.getDate(); d++) {
+    const dateStr = `${calYear}-${String(calMonth + 1).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
+    const cls = ['cal-cell',
+      dateStr === todayStr        ? 'today'      : '',
+      dateStr === calSelectedDate ? 'selected'   : '',
+      googleDays.has(dateStr)     ? 'has-google' : (eventDays.has(dateStr) ? 'has-event' : ''),
+    ].filter(Boolean).join(' ');
+    html += `<div class="${cls}" onclick="calSelectDay('${dateStr}')">${d}</div>`;
   }
+  const rem = (startDow + lastDay.getDate()) % 7;
+  if (rem) for (let i = 0; i < 7 - rem; i++) html += '<div class="cal-cell other"></div>';
+  body.innerHTML = html;
+}
+
+function renderCalDay() {
+  const listEl  = $('calEventsList');
+  const titleEl = $('calDayTitle');
+  if (!listEl) return;
+
+  const dayEvents = calEvents.filter(e => e.start_datetime.startsWith(calSelectedDate));
+  if (titleEl) titleEl.textContent = new Date(calSelectedDate + 'T00:00:00').toLocaleDateString('fr-FR', { weekday: 'long', day: 'numeric', month: 'long' });
+
+  if (!dayEvents.length) {
+    listEl.innerHTML = '<div class="cal-empty">Aucun événement</div>';
+    return;
+  }
+  listEl.innerHTML = dayEvents.map(e => `
+    <div class="cal-event-item ${e.source === 'google' ? 'google' : ''}">
+      <div class="cal-event-time">${fmtTime(e.start_datetime)}</div>
+      <div>
+        <div class="cal-event-title">${escHtml(e.title)}</div>
+        ${e.description ? `<div class="cal-event-desc">${escHtml(e.description)}</div>` : ''}
+      </div>
+    </div>
+  `).join('');
+}
+
+function calSelectDay(dateStr) {
+  calSelectedDate = dateStr;
+  renderCalGrid();
+  renderCalDay();
+}
+
+function calGoPrev() {
+  calMonth--;
+  if (calMonth < 0) { calMonth = 11; calYear--; }
+  loadCalendar();
+}
+
+function calGoNext() {
+  calMonth++;
+  if (calMonth > 11) { calMonth = 0; calYear++; }
+  loadCalendar();
+}
+
+function calGoToday() {
+  const now = new Date();
+  calYear = now.getFullYear();
+  calMonth = now.getMonth();
+  calSelectedDate = now.toISOString().split('T')[0];
+  loadCalendar();
+}
+
+// ---------------------------------------------------------------------------
+// IBKR
+// ---------------------------------------------------------------------------
+let ibkrPerf   = null;
+let ibkrTrades = [];
+
+async function loadIbkr() {
+  try {
+    [ibkrPerf, ibkrTrades] = await Promise.all([
+      api('/api/ibkr/perf').catch(() => null),
+      api('/api/ibkr/trades?limit=500').catch(() => []),
+    ]);
+  } catch(_) {}
+  renderIbkrStats();
+  renderIbkrMonthly();
+  populateIbkrMonthFilter();
+  renderIbkrTrades();
+}
+
+function renderIbkrStats() {
+  const el = $('ibkrStats');
+  if (!el) return;
+  if (!ibkrPerf?.ytd) {
+    el.innerHTML = '<div class="ibkr-empty">Aucune donnée IBKR. Configurez IBKR_FLEX_TOKEN et IBKR_FLEX_QUERY_ID.</div>';
+    return;
+  }
+  const y = ibkrPerf.ytd;
+  el.innerHTML = `
+    <div class="ibkr-stat"><div class="ibkr-stat-label">PnL brut YTD</div><div class="ibkr-stat-val ${y.pnl >= 0 ? 'pos' : 'neg'}">${y.pnl >= 0 ? '+' : ''}$${y.pnl.toFixed(2)}</div></div>
+    <div class="ibkr-stat"><div class="ibkr-stat-label">PnL net YTD</div><div class="ibkr-stat-val ${y.pnl_net >= 0 ? 'pos' : 'neg'}">${y.pnl_net >= 0 ? '+' : ''}$${y.pnl_net.toFixed(2)}</div></div>
+    <div class="ibkr-stat"><div class="ibkr-stat-label">Commissions</div><div class="ibkr-stat-val neg">-$${Math.abs(y.commission).toFixed(2)}</div></div>
+    <div class="ibkr-stat"><div class="ibkr-stat-label">Trades</div><div class="ibkr-stat-val">${y.trades}</div></div>
+    <div class="ibkr-stat"><div class="ibkr-stat-label">Win rate</div><div class="ibkr-stat-val ${y.win_rate >= 50 ? 'pos' : 'neg'}">${y.win_rate.toFixed(1)}%</div></div>
+    <div class="ibkr-stat"><div class="ibkr-stat-label">Dernière sync</div><div class="ibkr-stat-val" style="font-size:11px">${ibkrPerf.last_sync ? fmtRelative(ibkrPerf.last_sync) : '—'}</div></div>
+  `;
+}
+
+function renderIbkrMonthly() {
+  const el = $('ibkrMonthly');
+  if (!el) return;
+  if (!ibkrPerf?.monthly?.length) { el.innerHTML = ''; return; }
+  el.innerHTML = `
+    <table class="ibkr-table">
+      <thead><tr><th>Mois</th><th>PnL brut</th><th>PnL net</th><th>Commission</th><th>Trades</th><th>Win %</th></tr></thead>
+      <tbody>${ibkrPerf.monthly.map(m => `
+        <tr>
+          <td>${m.month}</td>
+          <td class="${m.pnl >= 0 ? 'pos' : 'neg'}">${m.pnl >= 0 ? '+' : ''}$${m.pnl.toFixed(2)}</td>
+          <td class="${m.pnl_net >= 0 ? 'pos' : 'neg'}">${m.pnl_net >= 0 ? '+' : ''}$${m.pnl_net.toFixed(2)}</td>
+          <td class="neg">-$${Math.abs(m.commission).toFixed(2)}</td>
+          <td>${m.trades}</td>
+          <td class="${m.win_rate >= 50 ? 'pos' : 'neg'}">${m.win_rate.toFixed(1)}%</td>
+        </tr>
+      `).join('')}</tbody>
+    </table>
+  `;
+}
+
+function populateIbkrMonthFilter() {
+  const sel = $('ibkrMonthFilter');
+  if (!sel) return;
+  const months = [...new Set(ibkrTrades.map(t => (t.trade_date || '').substring(0, 7)).filter(Boolean))].sort().reverse();
+  sel.innerHTML = '<option value="">Tous les mois</option>' + months.map(m => `<option value="${m}">${m}</option>`).join('');
+}
+
+function renderIbkrTrades() {
+  const el = $('ibkrTradesTable');
+  if (!el) return;
+  const filter = $('ibkrMonthFilter')?.value || '';
+  const trades = filter ? ibkrTrades.filter(t => (t.trade_date || '').startsWith(filter)) : ibkrTrades;
+  if (!trades.length) { el.innerHTML = '<div class="ibkr-empty">Aucun trade</div>'; return; }
+  el.innerHTML = `
+    <table class="ibkr-table">
+      <thead><tr><th>Date</th><th>Symbole</th><th>B/S</th><th>Qté</th><th>Prix</th><th>Produit</th><th>PnL</th><th>Commission</th></tr></thead>
+      <tbody>${trades.slice(0, 200).map(t => `
+        <tr>
+          <td class="muted">${t.trade_date || '—'}</td>
+          <td style="font-weight:500">${escHtml(t.symbol)}</td>
+          <td class="${t.buy_sell === 'BUY' ? 'pos' : 'neg'}">${t.buy_sell}</td>
+          <td>${t.quantity}</td>
+          <td>$${parseFloat(t.price || 0).toFixed(2)}</td>
+          <td>$${parseFloat(t.proceeds || 0).toFixed(2)}</td>
+          <td class="${(t.pnl || 0) >= 0 ? 'pos' : 'neg'}">${(t.pnl || 0) !== 0 ? ((t.pnl >= 0 ? '+' : '') + '$' + (t.pnl || 0).toFixed(2)) : '—'}</td>
+          <td class="neg">-$${Math.abs(t.commission || 0).toFixed(2)}</td>
+        </tr>
+      `).join('')}</tbody>
+    </table>
+  `;
+}
+
+async function syncIbkr(btn) {
+  if (btn) { btn.disabled = true; btn.textContent = '...'; }
+  try {
+    await api('/api/ibkr/sync', 'POST');
+    await Promise.all([loadIbkr(), loadHeaderMetrics()]);
+  } catch(e) { alert('Erreur sync: ' + e.message); }
+  if (btn) { btn.disabled = false; btn.textContent = '↻ Sync'; }
 }
 
 // ---------------------------------------------------------------------------
@@ -651,6 +852,8 @@ document.addEventListener('click', e => {
 // ---------------------------------------------------------------------------
 async function init() {
   await Promise.all([loadBoard(), loadProjects(), loadTeam()]);
+  loadHeaderMetrics();
+  setInterval(loadHeaderMetrics, 120000);
   pollHeartbeat();
   setInterval(pollHeartbeat, 30000);
   initSSE();

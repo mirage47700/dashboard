@@ -20,6 +20,10 @@
       <span class="mc-hb-dot"></span>
       <span id="mcHbLabel">En attente...</span>
     </div>
+    <div class="mc-metrics">
+      <div class="mc-metric" id="metricOR" title="Crédits OpenRouter restants">OR —</div>
+      <div class="mc-metric" id="metricPnl" title="PnL net YTD IBKR">YTD —</div>
+    </div>
     <div class="mc-clock" id="mcClock"></div>
     <a href="/" class="mc-back-btn" title="Retour au dashboard">← Dashboard</a>
   </header>
@@ -28,6 +32,7 @@
   <nav class="mc-tabs">
     <button class="mc-tab active" id="tab-board"    onclick="switchTab('board')">Board</button>
     <button class="mc-tab"        id="tab-calendar" onclick="switchTab('calendar')">Calendar</button>
+    <button class="mc-tab"        id="tab-ibkr"     onclick="switchTab('ibkr')">IBKR</button>
     <button class="mc-tab"        id="tab-projects" onclick="switchTab('projects')">Projects</button>
     <button class="mc-tab"        id="tab-memories" onclick="switchTab('memories')">Memories</button>
     <button class="mc-tab"        id="tab-docs"     onclick="switchTab('docs')">Docs</button>
@@ -73,8 +78,42 @@
 
   <!-- ===== CALENDAR ===== -->
   <section id="section-calendar" class="mc-section hidden">
-    <div class="section-toolbar"><h2>Calendar & Cron Jobs</h2></div>
-    <div id="cronContainer"></div>
+    <div class="section-toolbar">
+      <h2>Calendrier</h2>
+      <div class="cal-nav-btns">
+        <button class="btn-secondary" onclick="calGoPrev()">‹</button>
+        <span id="calMonthLabel"></span>
+        <button class="btn-secondary" onclick="calGoNext()">›</button>
+      </div>
+      <button class="btn-secondary" onclick="calGoToday()">Aujourd'hui</button>
+      <a href="/auth/google" id="gcalConnectBtn" class="btn-secondary" style="display:none">+ Google Calendar</a>
+    </div>
+    <div class="cal-layout">
+      <div class="cal-grid-section">
+        <div class="cal-grid-hdr">
+          <div>Lu</div><div>Ma</div><div>Me</div><div>Je</div><div>Ve</div><div>Sa</div><div>Di</div>
+        </div>
+        <div class="cal-grid-body" id="calGridBody"></div>
+      </div>
+      <div class="cal-day-panel">
+        <div class="cal-day-title" id="calDayTitle">—</div>
+        <div class="cal-events-list" id="calEventsList"></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ===== IBKR ===== -->
+  <section id="section-ibkr" class="mc-section hidden">
+    <div class="section-toolbar">
+      <h2>IBKR Trading</h2>
+      <select id="ibkrMonthFilter" onchange="renderIbkrTrades()">
+        <option value="">Tous les mois</option>
+      </select>
+      <button class="btn-secondary" onclick="syncIbkr(this)">↻ Sync</button>
+    </div>
+    <div class="ibkr-stats" id="ibkrStats"></div>
+    <div class="ibkr-monthly" id="ibkrMonthly"></div>
+    <div class="ibkr-trades" id="ibkrTradesTable"></div>
   </section>
 
   <!-- ===== PROJECTS ===== -->
