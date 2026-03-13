@@ -3,7 +3,7 @@ module.exports = {
     {
       name: "dashboard",
       script: "venv/bin/python",
-      args: "-m uvicorn main:app --host 0.0.0.0 --port 8080",
+      args: "-m uvicorn main:app --host 0.0.0.0 --port 8000",
       cwd: "/home/dashboard",
       interpreter: "none",
       env: {
