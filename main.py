@@ -591,21 +591,32 @@ def _get_redirect_uri(request: Request) -> str:
     return str(request.url_for("auth_google_callback"))
 
 
+# PKCE: store state -> code_verifier between /auth/google and /auth/google/callback
+_oauth_pending: dict = {}
+
+
 @app.get("/auth/google")
 async def auth_google(request: Request):
     from google_auth_oauthlib.flow import Flow
     flow = Flow.from_client_config(_google_client_config(), scopes=GOOGLE_SCOPES)
     flow.redirect_uri = _get_redirect_uri(request)
     # access_type=offline ensures we get a refresh_token; prompt=consent forces it even if already granted
-    authorization_url, _ = flow.authorization_url(access_type="offline", prompt="consent")
+    authorization_url, state = flow.authorization_url(access_type="offline", prompt="consent")
+    # Persist code_verifier so the callback can complete the PKCE exchange
+    cv = getattr(flow.oauth2session, "code_verifier", None)
+    _oauth_pending[state] = cv
     return RedirectResponse(authorization_url)
 
 
 @app.get("/auth/google/callback", name="auth_google_callback")
 async def auth_google_callback(request: Request, code: str, state: str = ""):
     from google_auth_oauthlib.flow import Flow
-    flow = Flow.from_client_config(_google_client_config(), scopes=GOOGLE_SCOPES)
+    flow = Flow.from_client_config(_google_client_config(), scopes=GOOGLE_SCOPES, state=state)
     flow.redirect_uri = _get_redirect_uri(request)
+    # Restore code_verifier for PKCE
+    cv = _oauth_pending.pop(state, None)
+    if cv:
+        flow.oauth2session.code_verifier = cv
     flow.fetch_token(code=code)
     creds = flow.credentials
     token_data = {

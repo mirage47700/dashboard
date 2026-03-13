@@ -11,7 +11,7 @@ module.exports = {
         IBKR_FLEX_TOKEN: process.env.IBKR_FLEX_TOKEN || "",
         IBKR_FLEX_QUERY_ID: process.env.IBKR_FLEX_QUERY_ID || "",
         MEMORIES_PATH: "/root/memories.md",
-        GOOGLE_REDIRECT_URI: "https://georges.openclawgeorges.com/auth/google/callback",
+        GOOGLE_REDIRECT_URI: "https://dashboard.openclawgeorges.com/auth/google/callback",
       },
       watch: false,
       autorestart: true,
