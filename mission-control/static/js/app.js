@@ -918,6 +918,13 @@ async function init() {
   pollHeartbeat();
   setInterval(pollHeartbeat, 30000);
   initSSE();
+
+  // Handle ?tab=xxx redirect (e.g. after Google OAuth callback)
+  const urlTab = new URLSearchParams(location.search).get('tab');
+  if (urlTab && TABS.includes(urlTab)) {
+    switchTab(urlTab);
+    history.replaceState(null, '', location.pathname);
+  }
 }
 
 init();
