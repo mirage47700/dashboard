@@ -133,7 +133,34 @@ def init_db():
             pnl REAL DEFAULT 0,
             synced_at TEXT DEFAULT (datetime('now'))
         );
+
+        CREATE TABLE IF NOT EXISTS boomtech_events (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            event_id TEXT UNIQUE NOT NULL,
+            title TEXT NOT NULL,
+            start_date TEXT NOT NULL,
+            end_date TEXT DEFAULT '',
+            all_day INTEGER DEFAULT 0,
+            timezone TEXT DEFAULT 'America/New_York',
+            category TEXT DEFAULT '',
+            description TEXT DEFAULT '',
+            color TEXT DEFAULT '',
+            link TEXT DEFAULT '',
+            gcal_event_id TEXT DEFAULT '',
+            scraped_at TEXT DEFAULT (datetime('now')),
+            updated_at TEXT DEFAULT (datetime('now'))
+        );
     """)
+    # Migrations: add gcal_event_id to legacy tables if missing
+    for tbl, col in [
+        ("trading_calendar", "gcal_event_id"),
+        ("economic_releases", "gcal_event_id"),
+        ("stock_splits", "gcal_event_id"),
+    ]:
+        try:
+            conn.execute(f"ALTER TABLE {tbl} ADD COLUMN {col} TEXT DEFAULT ''")
+        except Exception:
+            pass  # column already exists
     conn.commit()
     conn.close()
 
@@ -150,6 +177,7 @@ async def lifespan(app: FastAPI):
         asyncio.create_task(_schedule_daily_digest())
     if IBKR_FLEX_TOKEN and IBKR_FLEX_QUERY_ID:
         asyncio.create_task(_schedule_ibkr_sync())
+    asyncio.create_task(_schedule_trading_calendar_sync())
     yield
 
 
@@ -1495,14 +1523,295 @@ async def _run_scrape() -> dict:
 
 
 # ---------------------------------------------------------------------------
+# BoomTech API Scraper
+# ---------------------------------------------------------------------------
+
+_BOOMTECH_CALENDAR_API = "https://calendar.apiboomtech.com/api/published_calendar"
+_BOOMTECH_COMP_ID = "comp-lr5jesl7"
+_BOOMTECH_INSTANCE_ID = "c5e42399-abb2-427f-a52e-462a5604a7dc"
+_BOOMTECH_APP_ID = "13b4a028-00fa-7133-242f-4628106b8c91"
+_BOOMTECH_SITE_URL = "https://www.tradingcalendar.com/"
+
+_BOOMTECH_CATEGORIES = {
+    57766: "Market Holiday", 57771: "FOMC", 57773: "Macro", 57774: "Macro(2)",
+    58073: "Events", 58096: "Housing", 58297: "OPEX", 58310: "Rebalance",
+    58377: "SPAC", 58378: "IPO", 59200: "Stock Split", 59545: "Delisting",
+    59980: "Commodities", 60682: "Spin-Off", 62133: "M&A",
+    63304: "Recurring Metrics", 91489: "Listing Change",
+}
+
+
+def _boomtech_get_token() -> str:
+    """Récupère un token d'instance frais via l'API Wix access-tokens."""
+    import base64
+    headers = {
+        "User-Agent": (
+            "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
+            "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+        ),
+        "Accept": "application/json",
+        "Referer": _BOOMTECH_SITE_URL,
+    }
+    import httpx
+    resp = httpx.get(f"{_BOOMTECH_SITE_URL}_api/v1/access-tokens", headers=headers, timeout=30)
+    resp.raise_for_status()
+    data = resp.json()
+    boom_app = data.get("apps", {}).get(_BOOMTECH_APP_ID)
+    if not boom_app:
+        raise RuntimeError(f"App BoomTech ({_BOOMTECH_APP_ID}) introuvable dans access-tokens.")
+    token = boom_app.get("instance")
+    if not token:
+        raise RuntimeError("Clé 'instance' absente dans les données de l'app BoomTech.")
+    return token
+
+
+def _boomtech_fetch_calendar(token: str) -> list:
+    """Récupère tous les événements du calendrier BoomTech."""
+    import httpx
+    import re as _re
+    params = {
+        "comp_id": _BOOMTECH_COMP_ID,
+        "instance": token,
+        "originCompId": "",
+        "time_zone": "America/New_York",
+    }
+    headers = {
+        "User-Agent": (
+            "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
+            "AppleWebKit/537.36 Chrome/120.0.0.0 Safari/537.36"
+        ),
+        "Accept": "application/json",
+        "Referer": _BOOMTECH_SITE_URL,
+        "Origin": "https://www.tradingcalendar.com",
+    }
+    resp = httpx.get(_BOOMTECH_CALENDAR_API, params=params, headers=headers, timeout=60)
+    resp.raise_for_status()
+    data = resp.json()
+    raw_events = data.get("events", [])
+
+    parsed = []
+    for ev in raw_events:
+        cats = ev.get("categories", [])
+        cat_names = []
+        for c in cats:
+            if isinstance(c, dict):
+                cat_names.append(c.get("name", ""))
+            elif isinstance(c, int):
+                cat_names.append(_BOOMTECH_CATEGORIES.get(c, f"Unknown({c})"))
+        desc_html = ev.get("desc", "") or ""
+        desc_plain = _re.sub(r"<[^>]+>", "", desc_html).strip()
+        parsed.append({
+            "event_id": str(ev.get("id", "")),
+            "title": ev.get("title", ""),
+            "start_date": ev.get("start", ""),
+            "end_date": ev.get("end", "") or "",
+            "all_day": 1 if ev.get("all_day") else 0,
+            "timezone": ev.get("time_zone", "America/New_York") or "America/New_York",
+            "category": ", ".join(cat_names),
+            "description": desc_plain,
+            "color": ev.get("color", "") or "",
+            "link": ev.get("link", "") or "",
+        })
+    return parsed
+
+
+def _save_boomtech_events(events: list):
+    """Upsert des événements BoomTech dans la DB (préserve gcal_event_id)."""
+    conn = get_db()
+    for ev in events:
+        conn.execute("""
+            INSERT INTO boomtech_events
+                (event_id, title, start_date, end_date, all_day, timezone,
+                 category, description, color, link, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
+            ON CONFLICT(event_id) DO UPDATE SET
+                title       = excluded.title,
+                start_date  = excluded.start_date,
+                end_date    = excluded.end_date,
+                all_day     = excluded.all_day,
+                timezone    = excluded.timezone,
+                category    = excluded.category,
+                description = excluded.description,
+                color       = excluded.color,
+                link        = excluded.link,
+                updated_at  = datetime('now')
+        """, (
+            ev["event_id"], ev["title"], ev["start_date"], ev["end_date"],
+            ev["all_day"], ev["timezone"], ev["category"], ev["description"],
+            ev["color"], ev["link"],
+        ))
+    conn.commit()
+    conn.close()
+
+
+def _do_boomtech_scrape() -> list:
+    """Scrape synchrone BoomTech — à exécuter dans un thread pool."""
+    token = _boomtech_get_token()
+    events = _boomtech_fetch_calendar(token)
+    _save_boomtech_events(events)
+    return events
+
+
+async def _run_boomtech_scrape() -> list:
+    import asyncio
+    loop = asyncio.get_event_loop()
+    return await loop.run_in_executor(_scraper_executor, _do_boomtech_scrape)
+
+
+# ---------------------------------------------------------------------------
+# GCal Sync helpers
+# ---------------------------------------------------------------------------
+
+def _gcal_event_body(ev: dict) -> dict:
+    """Construit le body d'un événement Google Calendar depuis un boomtech_event."""
+    title = ev["title"]
+    description = ev.get("description", "")
+    if ev.get("category"):
+        description = f"[{ev['category']}]\n{description}".strip()
+    description += "\n\nsource: tradingcalendar.com"
+
+    if ev["all_day"]:
+        date_str = ev["start_date"][:10]
+        end_str = ev["end_date"][:10] if ev.get("end_date") else date_str
+        return {
+            "summary": title,
+            "description": description,
+            "start": {"date": date_str},
+            "end": {"date": end_str or date_str},
+        }
+    else:
+        # Heure incluse dans start_date (ISO) ou pas — on prend 09:00 par défaut
+        start_iso = ev["start_date"]
+        if "T" in start_iso:
+            dt_start = start_iso[:19]
+        else:
+            dt_start = f"{start_iso[:10]}T09:00:00"
+        end_iso = ev.get("end_date", "")
+        if end_iso and "T" in end_iso:
+            dt_end = end_iso[:19]
+        else:
+            # +1h par rapport au start
+            from datetime import datetime as _dt, timedelta as _td
+            _s = _dt.fromisoformat(dt_start)
+            dt_end = (_s + _td(hours=1)).strftime("%Y-%m-%dT%H:%M:%S")
+        tz = ev.get("timezone") or "America/New_York"
+        return {
+            "summary": title,
+            "description": description,
+            "start": {"dateTime": dt_start, "timeZone": tz},
+            "end": {"dateTime": dt_end, "timeZone": tz},
+        }
+
+
+async def _sync_boomtech_to_gcal(days_ahead: int = 90) -> dict:
+    """
+    Sync les événements BoomTech → Google Calendar.
+    - Crée les nouveaux événements et stocke leur gcal_event_id.
+    - Met à jour les événements existants (title/desc changés).
+    - Ne touche pas aux événements passés.
+    """
+    creds = get_google_credentials()
+    if creds is None:
+        raise RuntimeError("Google Calendar non connecté.")
+
+    from google.auth.transport.requests import Request as GoogleRequest
+    from googleapiclient.discovery import build
+    import asyncio
+
+    if creds.expired and creds.refresh_token:
+        creds.refresh(GoogleRequest())
+        _persist_credentials(creds)
+
+    service = build("calendar", "v3", credentials=creds)
+
+    today = date.today().isoformat()
+    until = (date.today() + timedelta(days=days_ahead)).isoformat()
+
+    conn = get_db()
+    rows = conn.execute(
+        """SELECT * FROM boomtech_events
+           WHERE start_date >= ? AND start_date <= ?
+           ORDER BY start_date""",
+        (today, until),
+    ).fetchall()
+    conn.close()
+
+    created, updated, errors = 0, 0, []
+
+    for row in rows:
+        ev = dict(row)
+        body = _gcal_event_body(ev)
+        gcal_id = ev.get("gcal_event_id", "")
+
+        try:
+            if gcal_id:
+                # Mise à jour
+                await asyncio.get_event_loop().run_in_executor(
+                    None,
+                    lambda gid=gcal_id, b=body: service.events().patch(
+                        calendarId="primary", eventId=gid, body=b
+                    ).execute(),
+                )
+                updated += 1
+            else:
+                # Création
+                result = await asyncio.get_event_loop().run_in_executor(
+                    None,
+                    lambda b=body: service.events().insert(
+                        calendarId="primary", body=b
+                    ).execute(),
+                )
+                new_gcal_id = result.get("id", "")
+                conn2 = get_db()
+                conn2.execute(
+                    "UPDATE boomtech_events SET gcal_event_id = ? WHERE event_id = ?",
+                    (new_gcal_id, ev["event_id"]),
+                )
+                conn2.commit()
+                conn2.close()
+                created += 1
+        except Exception as exc:
+            errors.append({"event_id": ev["event_id"], "title": ev["title"], "error": str(exc)})
+
+    return {"created": created, "updated": updated, "errors": errors, "window_days": days_ahead}
+
+
+async def _schedule_trading_calendar_sync():
+    """Cron quotidien : scrape BoomTech puis sync vers Google Calendar à 7h ET."""
+    import asyncio
+    while True:
+        now_utc = datetime.now(timezone.utc)
+        # 7h00 ET = 12h00 UTC (hiver) / 11h00 UTC (été) — on utilise 12h UTC
+        target = now_utc.replace(hour=12, minute=0, second=0, microsecond=0)
+        if target <= now_utc:
+            target += timedelta(days=1)
+        await asyncio.sleep((target - now_utc).total_seconds())
+        try:
+            print("[TradingCalendar] Scrape BoomTech quotidien...")
+            events = await _run_boomtech_scrape()
+            print(f"[TradingCalendar] {len(events)} événements scraped.")
+            result = await _sync_boomtech_to_gcal(days_ahead=90)
+            print(f"[TradingCalendar] GCal sync: {result}")
+        except Exception as e:
+            print(f"[TradingCalendar] Erreur cron: {e}")
+
+
+# ---------------------------------------------------------------------------
 # Routes - Trading Calendar
 # ---------------------------------------------------------------------------
 
 @app.post("/api/trading-calendar/refresh")
 async def refresh_trading_calendar():
-    """Trigger a full re-scrape of tradingcalendar.com."""
-    results = await _run_scrape()
-    return {"status": "ok", "scraped": {k: len(v) for k, v in results.items()}}
+    """Trigger a full re-scrape of tradingcalendar.com (Playwright legacy + BoomTech API)."""
+    import asyncio
+    results_legacy, events_boom = await asyncio.gather(
+        _run_scrape(),
+        _run_boomtech_scrape(),
+        return_exceptions=True,
+    )
+    legacy_counts = {k: len(v) for k, v in results_legacy.items()} if isinstance(results_legacy, dict) else {"error": str(results_legacy)}
+    boom_count = len(events_boom) if isinstance(events_boom, list) else {"error": str(events_boom)}
+    return {"status": "ok", "legacy": legacy_counts, "boomtech": boom_count}
 
 
 @app.get("/api/trading-calendar/market")
@@ -1622,113 +1931,54 @@ def get_today_trading_events():
     return {"date": today, "count": len(events), "events": events}
 
 
-@app.post("/api/trading-calendar/sync-gcal")
-async def sync_trading_calendar_to_gcal(target_date: Optional[str] = None):
-    """
-    Add today's (or target_date's) tradingcalendar.com events to Google Calendar.
-    Requires Google OAuth with calendar.events scope.
-    """
-    creds = get_google_credentials()
-    if creds is None:
-        raise HTTPException(status_code=401, detail="Google Calendar non connecté. Visitez /auth/google")
-
-    day = target_date or date.today().isoformat()
+@app.get("/api/trading-calendar/boomtech")
+def get_boomtech_events(
+    category: Optional[str] = None,
+    upcoming_only: bool = True,
+    days_ahead: int = 90,
+    limit: int = 500,
+):
+    """Retourne les événements récupérés via l'API BoomTech."""
     conn = get_db()
-
-    # Collect all events for the day (same logic as /today but parameterized)
-    tc_events: list = []
-
-    rows = conn.execute(
-        "SELECT * FROM trading_calendar WHERE date = ?", (day,)
-    ).fetchall()
-    for r in rows:
-        r = dict(r)
-        time_et = _CALENDAR_EVENT_TIMES_ET.get(r['event_type'])
-        tc_events.append({
-            "title": r['title'],
-            "description": f"[{r['event_type']}] source: tradingcalendar.com",
-            "date": day,
-            "time_et": time_et,
-            "all_day": time_et is None,
-        })
-
-    rows = conn.execute(
-        "SELECT * FROM economic_releases WHERE release_date = ?", (day,)
-    ).fetchall()
-    for r in rows:
-        r = dict(r)
-        time_et = _RELEASE_TIMES_ET.get(r['indicator'], '08:30')
-        parts = []
-        if r['estimate']:
-            parts.append(f"Estimate: {r['estimate']}")
-        if r['actual']:
-            parts.append(f"Actual: {r['actual']}")
-        if r['revision']:
-            parts.append(f"Revision: {r['revision']}")
-        tc_events.append({
-            "title": f"{r['indicator']} Release",
-            "description": " | ".join(parts) + "\nsource: tradingcalendar.com",
-            "date": day,
-            "time_et": time_et,
-            "all_day": False,
-        })
-
-    rows = conn.execute(
-        "SELECT * FROM stock_splits WHERE ex_date = ?", (day,)
-    ).fetchall()
-    for r in rows:
-        r = dict(r)
-        tc_events.append({
-            "title": f"{r['symbol']} Stock Split {r['ratio']}",
-            "description": f"Float (New): {r['float_new']} | Float (Old): {r['float_old']}\nsource: tradingcalendar.com",
-            "date": day,
-            "time_et": "09:30",
-            "all_day": False,
-        })
-
+    today = date.today().isoformat()
+    until = (date.today() + timedelta(days=days_ahead)).isoformat()
+    query = "SELECT * FROM boomtech_events WHERE 1=1"
+    params: list = []
+    if upcoming_only:
+        query += " AND start_date >= ? AND start_date <= ?"
+        params += [today, until]
+    if category:
+        query += " AND category LIKE ?"
+        params.append(f"%{category}%")
+    query += " ORDER BY start_date ASC LIMIT ?"
+    params.append(limit)
+    rows = conn.execute(query, params).fetchall()
     conn.close()
+    return [dict(r) for r in rows]
 
-    if not tc_events:
-        return {"synced": 0, "message": "Aucun événement tradingcalendar.com pour ce jour"}
 
-    # Create events via Google Calendar API
+@app.post("/api/trading-calendar/boomtech/refresh")
+async def refresh_boomtech():
+    """Scrape l'API BoomTech et met à jour la DB."""
+    events = await _run_boomtech_scrape()
+    return {"status": "ok", "count": len(events)}
+
+
+@app.post("/api/trading-calendar/sync-gcal")
+async def sync_trading_calendar_to_gcal(days_ahead: int = 90):
+    """
+    Sync les événements BoomTech → Google Calendar pour les N prochains jours.
+    - Crée les nouveaux événements (stocke gcal_event_id pour éviter les doublons).
+    - Met à jour les événements déjà synchronisés.
+    Nécessite Google OAuth avec le scope calendar.events.
+    """
+    if get_google_credentials() is None:
+        raise HTTPException(status_code=401, detail="Google Calendar non connecté. Visitez /auth/google")
     try:
-        from google.auth.transport.requests import Request as GoogleRequest
-        from googleapiclient.discovery import build
-
-        if creds.expired and creds.refresh_token:
-            creds.refresh(GoogleRequest())
-            _persist_credentials(creds)
-
-        service = build("calendar", "v3", credentials=creds)
-        created = []
-
-        for ev in tc_events:
-            if ev["all_day"]:
-                body = {
-                    "summary": ev["title"],
-                    "description": ev.get("description", ""),
-                    "start": {"date": ev["date"]},
-                    "end": {"date": ev["date"]},
-                }
-            else:
-                dt_start = f"{ev['date']}T{ev['time_et']}:00"
-                # Add 1 hour for end time
-                h, mi = map(int, ev['time_et'].split(':'))
-                end_h = (h + 1) % 24
-                dt_end = f"{ev['date']}T{end_h:02d}:{mi:02d}:00"
-                body = {
-                    "summary": ev["title"],
-                    "description": ev.get("description", ""),
-                    "start": {"dateTime": dt_start, "timeZone": "America/New_York"},
-                    "end": {"dateTime": dt_end, "timeZone": "America/New_York"},
-                }
-
-            result = service.events().insert(calendarId="primary", body=body).execute()
-            created.append({"title": ev["title"], "id": result.get("id"), "link": result.get("htmlLink")})
-
-        return {"synced": len(created), "date": day, "events": created}
-
+        result = await _sync_boomtech_to_gcal(days_ahead=days_ahead)
+        return {"status": "ok", **result}
+    except RuntimeError as e:
+        raise HTTPException(status_code=401, detail=str(e))
     except Exception as e:
         print(f"[GCal Sync] Erreur: {e}")
         raise HTTPException(status_code=500, detail=f"Erreur Google Calendar: {e}")
