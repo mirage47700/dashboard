@@ -18,6 +18,7 @@ from pydantic import BaseModel
 
 GOOGLE_CLIENT_ID     = os.getenv("GOOGLE_CLIENT_ID", "")
 GOOGLE_CLIENT_SECRET = os.getenv("GOOGLE_CLIENT_SECRET", "")
+GOOGLE_REDIRECT_URI  = os.getenv("GOOGLE_REDIRECT_URI", "")  # e.g. https://yourdomain.com/auth/google/callback
 NOTION_TOKEN         = os.getenv("NOTION_TOKEN", "")
 OPENROUTER_API_KEY   = os.getenv("OPENROUTER_API_KEY", "")
 GEMINI_API_KEY       = os.getenv("GEMINI_API_KEY", "")
@@ -120,6 +121,7 @@ def init_db():
         CREATE TABLE IF NOT EXISTS ibkr_trades (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             trade_id TEXT UNIQUE,
+            order_id TEXT,
             symbol TEXT,
             asset_category TEXT,
             currency TEXT DEFAULT 'USD',
@@ -162,6 +164,12 @@ def init_db():
         except Exception:
             pass  # column already exists
     conn.commit()
+    # Migration: add order_id if missing (existing deployments)
+    try:
+        conn.execute("ALTER TABLE ibkr_trades ADD COLUMN order_id TEXT")
+        conn.commit()
+    except Exception:
+        pass
     conn.close()
 
 
@@ -186,8 +194,25 @@ async def lifespan(app: FastAPI):
 # ---------------------------------------------------------------------------
 
 app = FastAPI(title="VPS Dashboard", lifespan=lifespan)
+
+# Trust proxy headers from Cloudflare Tunnel so request.url_for() generates correct HTTPS URLs
+from uvicorn.middleware.proxy_headers import ProxyHeadersMiddleware
+app.add_middleware(ProxyHeadersMiddleware, trusted_hosts="*")
+
 app.mount("/static", StaticFiles(directory=BASE_DIR / "static"), name="static")
 templates = Jinja2Templates(directory=BASE_DIR / "templates")
+
+# Mount Mission Control as sub-app
+try:
+    import importlib.util as _ilu
+    _mc_spec = _ilu.spec_from_file_location(
+        "mission_control_main", BASE_DIR / "mission-control" / "main.py"
+    )
+    _mc_mod = _ilu.module_from_spec(_mc_spec)
+    _mc_spec.loader.exec_module(_mc_mod)
+    app.mount("/mission-control", _mc_mod.app)
+except Exception as _e:
+    print(f"[mission-control] Impossible de monter le sub-app: {_e}")
 
 
 # ---------------------------------------------------------------------------
@@ -234,7 +259,8 @@ class EventCreate(BaseModel):
 
 @app.get("/", response_class=HTMLResponse)
 async def index(request: Request):
-    return templates.TemplateResponse("index.html", {"request": request})
+    from fastapi.responses import RedirectResponse
+    return RedirectResponse(url="/mission-control/")
 
 
 @app.get("/widget.js")
@@ -524,7 +550,6 @@ def get_google_credentials():
         return None
     data = json.loads(GOOGLE_TOKEN_PATH.read_text())
     from google.oauth2.credentials import Credentials
-    from datetime import timezone
     creds = Credentials(
         token=data["token"],
         refresh_token=data.get("refresh_token"),
@@ -534,14 +559,15 @@ def get_google_credentials():
         scopes=data.get("scopes"),
     )
     if data.get("expiry"):
-        creds.expiry = datetime.fromisoformat(data["expiry"]).replace(tzinfo=timezone.utc)
+        raw = data["expiry"].replace("Z", "").split("+")[0]  # strip tz → naive UTC
+        creds.expiry = datetime.fromisoformat(raw)
     return creds
 
 
 def _persist_credentials(creds):
     existing = json.loads(GOOGLE_TOKEN_PATH.read_text()) if GOOGLE_TOKEN_PATH.exists() else {}
     existing["token"] = creds.token
-    existing["expiry"] = creds.expiry.isoformat() if creds.expiry else None
+    existing["expiry"] = creds.expiry.replace(tzinfo=None).isoformat() if creds.expiry else None
     if creds.refresh_token:
         existing["refresh_token"] = creds.refresh_token
     GOOGLE_TOKEN_PATH.write_text(json.dumps(existing, indent=2))
@@ -557,11 +583,18 @@ GOOGLE_SCOPES = [
 ]
 
 
+def _get_redirect_uri(request: Request) -> str:
+    """Return the OAuth callback URI: env override > auto-detected from request."""
+    if GOOGLE_REDIRECT_URI:
+        return GOOGLE_REDIRECT_URI
+    return str(request.url_for("auth_google_callback"))
+
+
 @app.get("/auth/google")
 async def auth_google(request: Request):
     from google_auth_oauthlib.flow import Flow
     flow = Flow.from_client_config(_google_client_config(), scopes=GOOGLE_SCOPES)
-    flow.redirect_uri = str(request.url_for("auth_google_callback"))
+    flow.redirect_uri = _get_redirect_uri(request)
     # access_type=offline ensures we get a refresh_token; prompt=consent forces it even if already granted
     authorization_url, _ = flow.authorization_url(access_type="offline", prompt="consent")
     return RedirectResponse(authorization_url)
@@ -571,7 +604,7 @@ async def auth_google(request: Request):
 async def auth_google_callback(request: Request, code: str, state: str = ""):
     from google_auth_oauthlib.flow import Flow
     flow = Flow.from_client_config(_google_client_config(), scopes=GOOGLE_SCOPES)
-    flow.redirect_uri = str(request.url_for("auth_google_callback"))
+    flow.redirect_uri = _get_redirect_uri(request)
     flow.fetch_token(code=code)
     creds = flow.credentials
     token_data = {
@@ -584,7 +617,7 @@ async def auth_google_callback(request: Request, code: str, state: str = ""):
         "expiry":         creds.expiry.isoformat() if creds.expiry else None,
     }
     GOOGLE_TOKEN_PATH.write_text(json.dumps(token_data, indent=2))
-    return RedirectResponse("/")
+    return RedirectResponse("/mission-control/?tab=calendar")
 
 
 # ---------------------------------------------------------------------------
@@ -812,11 +845,12 @@ async def get_api_usage():
                     total   = d.get("total_credits", 0)
                     used    = d.get("total_usage", 0)
                     out["openrouter"] = {
-                        "connected":      True,
-                        "total_credits":  total,
-                        "total_usage":    used,
-                        "remaining":      round(total - used, 4),
-                        "pct_used":       round(used / total * 100, 1) if total else 0,
+                        "connected":         True,
+                        "total_credits":     total,
+                        "total_usage":       used,
+                        "remaining":         round(total - used, 4),
+                        "remaining_credits": round(total - used, 4),
+                        "pct_used":          round(used / total * 100, 1) if total else 0,
                     }
                 else:
                     out["openrouter"] = {"connected": False, "error": r.status_code}
@@ -869,10 +903,11 @@ async def _fetch_ibkr_trades() -> dict:
     async with httpx.AsyncClient(timeout=30) as client:
         r = await client.get(send_url)
 
+    print(f"[IBKR] SendRequest status={r.status_code} body[:300]={r.text[:300]!r}")
     try:
         root = ET.fromstring(r.text)
     except ET.ParseError as e:
-        return {"error": f"XML parse error on SendRequest: {e}"}
+        return {"error": f"XML parse error on SendRequest: {e}", "raw": r.text[:300]}
 
     status = root.findtext("Status")
     if status != "Success":
@@ -885,72 +920,138 @@ async def _fetch_ibkr_trades() -> dict:
         or "https://gdcdyn.interactivebrokers.com/Universal/servlet/FlexStatementService.GetStatement"
     )
 
-    xml_content = None
+    statement_content = None
+    last_raw = ""
     async with httpx.AsyncClient(timeout=30) as client:
         for attempt in range(6):
             if attempt > 0:
                 await asyncio.sleep(5)
             get_url = f"{get_url_base}?q={ref_code}&t={IBKR_FLEX_TOKEN}&v=3"
             r2 = await client.get(get_url)
+            last_raw = r2.text[:300]
+            # CSV response: IBKR Flex Query configured with CSV format
+            if r2.text.lstrip().startswith('"'):
+                print(f"[IBKR] Detected CSV format, attempt {attempt}")
+                statement_content = r2.text
+                break
             try:
                 root2 = ET.fromstring(r2.text)
-                err_code = root2.findtext("ErrorCode")
-                if err_code in ("1019", "1018"):  # statement generation in progress
-                    continue
-                if root2.tag == "FlexStatementResponse":
-                    err_msg = root2.findtext("ErrorMessage") or "Unknown"
-                    return {"error": f"IBKR GetStatement error: {err_msg}"}
-            except ET.ParseError:
-                pass
-            xml_content = r2.text
+            except ET.ParseError as e:
+                print(f"[IBKR] ParseError attempt {attempt}: {e} | content[:200]: {r2.text[:200]!r}")
+                continue
+            err_code = root2.findtext("ErrorCode")
+            if err_code in ("1019", "1018"):  # statement generation in progress
+                continue
+            if root2.tag == "FlexStatementResponse" or err_code:
+                err_msg = root2.findtext("ErrorMessage") or f"code={err_code}"
+                return {"error": f"IBKR GetStatement error: {err_msg}"}
+            statement_content = r2.text
             break
 
-    if not xml_content:
-        return {"error": "IBKR statement not ready after retries"}
+    if not statement_content:
+        return {"error": "IBKR statement not ready after retries", "last_raw": last_raw}
 
-    try:
-        tree = ET.fromstring(xml_content)
-    except ET.ParseError as e:
-        return {"error": f"XML parse error on statement: {e}"}
+    def safe_float(val: str) -> float:
+        try:
+            return float(val) if val else 0.0
+        except (ValueError, TypeError):
+            return 0.0
 
     trades = []
-    for trade_el in tree.iter("Trade"):
-        if trade_el.get("levelOfDetail", "").upper() not in ("EXECUTION", "TRADE"):
-            continue
-        trade_id = trade_el.get("tradeID") or trade_el.get("transactionID")
-        if not trade_id:
-            continue
 
-        trade_date_raw = trade_el.get("tradeDate", "")
-        if len(trade_date_raw) == 8:
-            trade_date = f"{trade_date_raw[:4]}-{trade_date_raw[4:6]}-{trade_date_raw[6:8]}"
-        else:
-            trade_date = trade_date_raw
+    # ---- CSV format --------------------------------------------------------
+    if statement_content.lstrip().startswith('"'):
+        import csv, io
+        reader = csv.DictReader(io.StringIO(statement_content))
+        for row in reader:
+            # IBKR CSV uses "Buy/Sell" header with slash
+            trade_id = row.get("TradeID") or row.get("TransactionID") or row.get("IBOrderID", "")
+            if not trade_id:
+                continue
+            trade_date_raw = row.get("TradeDate", "")
+            if len(trade_date_raw) == 8:
+                trade_date = f"{trade_date_raw[:4]}-{trade_date_raw[4:6]}-{trade_date_raw[6:8]}"
+            else:
+                trade_date = trade_date_raw
+            date_time_raw = row.get("DateTime", trade_date).replace(";", " ")
+            trades.append({
+                "trade_id":       trade_id,
+                "order_id":       row.get("IBOrderID", row.get("OrderID", "")),
+                "symbol":         row.get("Symbol", ""),
+                "asset_category": row.get("AssetClass", row.get("AssetCategory", "")),
+                "currency":       row.get("CurrencyPrimary", row.get("Currency", "USD")),
+                "trade_date":     trade_date,
+                "date_time":      date_time_raw or trade_date,
+                "buy_sell":       row.get("Buy/Sell", row.get("BuySell", "")),
+                "quantity":       safe_float(row.get("Quantity")),
+                "price":          safe_float(row.get("TradePrice")),
+                "proceeds":       safe_float(row.get("Proceeds")),
+                "commission":     safe_float(row.get("IBCommission", row.get("Commission", ""))),
+                "pnl":            safe_float(row.get("FifoPnlRealized", row.get("RealizedPnL", ""))),
+            })
 
-        date_time_raw = trade_el.get("dateTime", "")
-        if date_time_raw and ";" in date_time_raw:
-            date_time_raw = date_time_raw.replace(";", " ")
+    # ---- XML format --------------------------------------------------------
+    else:
+        try:
+            tree = ET.fromstring(statement_content)
+        except ET.ParseError as e:
+            return {"error": f"XML parse error on statement: {e}"}
 
-        def safe_float(val: str) -> float:
-            try:
-                return float(val) if val else 0.0
-            except (ValueError, TypeError):
-                return 0.0
+        for trade_el in tree.iter("Trade"):
+            if trade_el.get("levelOfDetail", "").upper() not in ("EXECUTION", "TRADE"):
+                continue
+            trade_id = trade_el.get("tradeID") or trade_el.get("transactionID")
+            if not trade_id:
+                continue
+            trade_date_raw = trade_el.get("tradeDate", "")
+            if len(trade_date_raw) == 8:
+                trade_date = f"{trade_date_raw[:4]}-{trade_date_raw[4:6]}-{trade_date_raw[6:8]}"
+            else:
+                trade_date = trade_date_raw
+            date_time_raw = trade_el.get("dateTime", "").replace(";", " ")
+            trades.append({
+                "trade_id":       trade_el.get("tradeID") or trade_el.get("transactionID"),
+                "order_id":       trade_el.get("ibOrderID") or trade_el.get("orderID", ""),
+                "symbol":         trade_el.get("symbol", ""),
+                "asset_category": trade_el.get("assetCategory", ""),
+                "currency":       trade_el.get("currency", "USD"),
+                "trade_date":     trade_date,
+                "date_time":      date_time_raw or trade_date,
+                "buy_sell":       trade_el.get("buySell", ""),
+                "quantity":       safe_float(trade_el.get("quantity")),
+                "price":          safe_float(trade_el.get("tradePrice")),
+                "proceeds":       safe_float(trade_el.get("proceeds")),
+                "commission":     safe_float(trade_el.get("ibCommission")),
+                "pnl":            safe_float(trade_el.get("fifoPnlRealized")),
+            })
 
-        trades.append({
-            "trade_id":      trade_id,
-            "symbol":        trade_el.get("symbol", ""),
-            "asset_category": trade_el.get("assetCategory", ""),
-            "currency":      trade_el.get("currency", "USD"),
-            "trade_date":    trade_date,
-            "date_time":     date_time_raw or trade_date,
-            "buy_sell":      trade_el.get("buySell", ""),
-            "quantity":      safe_float(trade_el.get("quantity")),
-            "price":         safe_float(trade_el.get("tradePrice")),
-            "proceeds":      safe_float(trade_el.get("proceeds")),
-            "commission":    safe_float(trade_el.get("ibCommission")),
-            "pnl":           safe_float(trade_el.get("fifoPnlRealized")),
-        })
+        # ---- Ending Value (EquitySummaryByReportDateInBase, last entry) ----
+        summary_updates = {}
+        equity_els = list(tree.iter("EquitySummaryByReportDateInBase"))
+        if equity_els:
+            last_eq = equity_els[-1]
+            ending_val = last_eq.get("total") or last_eq.get("endingValue")
+            if ending_val:
+                summary_updates["ending_value"] = ending_val
+                print(f"[IBKR] EndingValue={ending_val}")
+
+        # ---- TWR (ChangeInNAV section) -------------------------------------
+        for nav_el in tree.iter("ChangeInNAV"):
+            twr = nav_el.get("twr")
+            if twr:
+                summary_updates["twr_ytd"] = twr
+                print(f"[IBKR] TWR={twr}")
+                break
+
+        if summary_updates:
+            conn_s = get_db()
+            for k, v in summary_updates.items():
+                conn_s.execute(
+                    "INSERT OR REPLACE INTO ibkr_summary (key, value, updated_at) VALUES (?, ?, datetime('now'))",
+                    (k, v),
+                )
+            conn_s.commit()
+            conn_s.close()
 
     conn = get_db()
     inserted = 0
@@ -961,11 +1062,11 @@ async def _fetch_ibkr_trades() -> dict:
         ).fetchone()
         if existing:
             conn.execute(
-                """UPDATE ibkr_trades SET symbol=?, asset_category=?, currency=?,
+                """UPDATE ibkr_trades SET order_id=?, symbol=?, asset_category=?, currency=?,
                    trade_date=?, date_time=?, buy_sell=?, quantity=?, price=?,
                    proceeds=?, commission=?, pnl=?, synced_at=datetime('now')
                    WHERE trade_id=?""",
-                (t["symbol"], t["asset_category"], t["currency"],
+                (t.get("order_id"), t["symbol"], t["asset_category"], t["currency"],
                  t["trade_date"], t["date_time"], t["buy_sell"],
                  t["quantity"], t["price"], t["proceeds"], t["commission"],
                  t["pnl"], t["trade_id"]),
@@ -974,10 +1075,10 @@ async def _fetch_ibkr_trades() -> dict:
         else:
             conn.execute(
                 """INSERT INTO ibkr_trades
-                   (trade_id, symbol, asset_category, currency, trade_date, date_time,
+                   (trade_id, order_id, symbol, asset_category, currency, trade_date, date_time,
                     buy_sell, quantity, price, proceeds, commission, pnl)
-                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
-                (t["trade_id"], t["symbol"], t["asset_category"], t["currency"],
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                (t["trade_id"], t.get("order_id"), t["symbol"], t["asset_category"], t["currency"],
                  t["trade_date"], t["date_time"], t["buy_sell"],
                  t["quantity"], t["price"], t["proceeds"], t["commission"], t["pnl"]),
             )
@@ -1043,7 +1144,13 @@ def get_ibkr_perf():
     ).fetchall()
 
     last_sync = conn.execute("SELECT MAX(synced_at) as ts FROM ibkr_trades").fetchone()
+    summary_rows = conn.execute("SELECT key, value FROM ibkr_summary").fetchall()
     conn.close()
+
+    summary = {r["key"]: r["value"] for r in summary_rows}
+    ending_value = float(summary["ending_value"]) if summary.get("ending_value") else None
+    twr_raw = summary.get("twr_ytd")
+    twr_ytd = float(twr_raw) if twr_raw else None
 
     monthly = []
     for r in monthly_rows:
@@ -1069,6 +1176,11 @@ def get_ibkr_perf():
             "trades":     len(ytd_rows),
             "wins":       ytd_wins,
             "win_rate":   round(ytd_wins / len(closed_ytd) * 100, 1) if closed_ytd else 0,
+            "twr":        round(twr_ytd * 100, 2) if twr_ytd is not None else None,
+        },
+        "portfolio": {
+            "ending_value": round(ending_value, 2) if ending_value is not None else None,
+            "twr_ytd_pct":  round(twr_ytd * 100, 2) if twr_ytd is not None else None,
         },
         "monthly":   monthly,
         "last_sync": last_sync["ts"] if last_sync else None,
@@ -1077,20 +1189,60 @@ def get_ibkr_perf():
 
 @app.get("/api/ibkr/trades")
 def get_ibkr_trades(month: Optional[str] = None, limit: int = 100):
-    """Return IBKR trades, optionally filtered by month (YYYY-MM)."""
+    """Return IBKR trades grouped by order_id, optionally filtered by month (YYYY-MM)."""
     conn = get_db()
     if month:
         rows = conn.execute(
-            "SELECT * FROM ibkr_trades WHERE trade_date LIKE ? ORDER BY date_time DESC LIMIT ?",
-            (f"{month}%", limit),
+            "SELECT * FROM ibkr_trades WHERE trade_date LIKE ? ORDER BY date_time ASC",
+            (f"{month}%",),
         ).fetchall()
     else:
         rows = conn.execute(
-            "SELECT * FROM ibkr_trades ORDER BY date_time DESC LIMIT ?",
+            "SELECT * FROM ibkr_trades ORDER BY date_time ASC LIMIT ?",
             (limit,),
         ).fetchall()
     conn.close()
-    return [dict(r) for r in rows]
+
+    # Group fills by order_id; fall back to individual rows when order_id is absent
+    from collections import defaultdict
+    order_map: dict = {}
+    ungrouped = []
+    for r in rows:
+        rd = dict(r)
+        oid = rd.get("order_id")
+        if oid:
+            if oid not in order_map:
+                order_map[oid] = []
+            order_map[oid].append(rd)
+        else:
+            ungrouped.append(rd)
+
+    result = []
+    for oid, fills in order_map.items():
+        total_qty  = sum(f["quantity"] or 0 for f in fills)
+        total_proc = sum(f["proceeds"] or 0 for f in fills)
+        total_comm = sum(f["commission"] or 0 for f in fills)
+        total_pnl  = sum(f["pnl"] or 0 for f in fills)
+        avg_price  = abs(total_proc / total_qty) if total_qty else fills[0]["price"]
+        first = fills[0]
+        result.append({
+            "order_id":       oid,
+            "symbol":         first["symbol"],
+            "asset_category": first["asset_category"],
+            "currency":       first["currency"],
+            "trade_date":     first["trade_date"],
+            "date_time":      first["date_time"],
+            "buy_sell":       first["buy_sell"],
+            "quantity":       round(total_qty, 4),
+            "price":          round(avg_price, 4),
+            "proceeds":       round(total_proc, 2),
+            "commission":     round(total_comm, 2),
+            "pnl":            round(total_pnl, 2),
+            "fills":          len(fills),
+        })
+    result.extend(ungrouped)
+    result.sort(key=lambda x: x.get("date_time", ""), reverse=True)
+    return result
 
 
 # ---------------------------------------------------------------------------

@@ -4,7 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>OpenClaw Mission Control</title>
-  <link rel="stylesheet" href="/static/css/style.css" />
+  <link rel="stylesheet" href="/mission-control/static/css/style.css" />
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet" />
 </head>
@@ -20,13 +20,19 @@
       <span class="mc-hb-dot"></span>
       <span id="mcHbLabel">En attente...</span>
     </div>
+    <div class="mc-metrics">
+      <div class="mc-metric" id="metricOR" title="Crédits OpenRouter restants">OR —</div>
+      <div class="mc-metric" id="metricPnl" title="PnL net YTD IBKR">YTD —</div>
+    </div>
     <div class="mc-clock" id="mcClock"></div>
+
   </header>
 
   <!-- TABS -->
   <nav class="mc-tabs">
     <button class="mc-tab active" id="tab-board"    onclick="switchTab('board')">Board</button>
     <button class="mc-tab"        id="tab-calendar" onclick="switchTab('calendar')">Calendar</button>
+    <button class="mc-tab"        id="tab-ibkr"     onclick="switchTab('ibkr')">IBKR</button>
     <button class="mc-tab"        id="tab-projects" onclick="switchTab('projects')">Projects</button>
     <button class="mc-tab"        id="tab-memories" onclick="switchTab('memories')">Memories</button>
     <button class="mc-tab"        id="tab-docs"     onclick="switchTab('docs')">Docs</button>
@@ -71,9 +77,37 @@
   </section>
 
   <!-- ===== CALENDAR ===== -->
+  <!-- ===== CALENDAR ===== -->
   <section id="section-calendar" class="mc-section hidden">
-    <div class="section-toolbar"><h2>Calendar & Cron Jobs</h2></div>
-    <div id="cronContainer"></div>
+    <div class="section-toolbar">
+      <h2 id="agendaTitle">Agenda du jour</h2>
+      <button class="btn-secondary" onclick="calGoToday()">⊙ Aujourd'hui</button>
+      <a id="gcalStatusBtn" href="/auth/google" class="gcal-connect-btn" title="Connecter Google Calendar">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><path d="M19 3h-1V1h-2v2H8V1H6v2H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2zm0 16H5V8h14v11zM7 10h5v5H7z"/></svg>
+        <span id="gcalStatusLabel">Connecter</span>
+      </a>
+      <button class="btn-primary" onclick="openMcEventModal()">+ Événement</button>
+    </div>
+    <div class="mc-agenda-layout">
+      <div class="mini-calendar" id="miniCalendar"></div>
+      <div class="agenda-day" id="agendaDay">
+        <div class="agenda-timeline" id="agendaTimeline"></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ===== IBKR ===== -->
+  <section id="section-ibkr" class="mc-section hidden">
+    <div class="section-toolbar">
+      <h2>IBKR Trading</h2>
+      <select id="ibkrMonthFilter" onchange="renderIbkrTrades()">
+        <option value="">Tous les mois</option>
+      </select>
+      <button class="btn-secondary" onclick="syncIbkr(this)">↻ Sync</button>
+    </div>
+    <div class="ibkr-stats" id="ibkrStats"></div>
+    <div class="ibkr-monthly" id="ibkrMonthly"></div>
+    <div class="ibkr-trades" id="ibkrTradesTable"></div>
   </section>
 
   <!-- ===== PROJECTS ===== -->
@@ -302,6 +336,38 @@
     </div>
   </div>
 
-  <script src="/static/js/app.js"></script>
+
+  <!-- EVENT MODAL -->
+  <div class="modal-overlay hidden" id="mcEventModal">
+    <div class="modal">
+      <div class="modal-hdr">
+        <h3>Nouvel événement</h3>
+        <button class="btn-close" onclick="closeModal('mcEventModal')">✕</button>
+      </div>
+      <div class="modal-body">
+        <div class="form-group"><label>Titre *</label><input type="text" id="mcEventTitle" placeholder="Titre…" /></div>
+        <div class="form-group"><label>Description</label><textarea id="mcEventDesc" rows="2" placeholder="Détails…"></textarea></div>
+        <div class="form-row">
+          <div class="form-group"><label>Début *</label><input type="datetime-local" id="mcEventStart" /></div>
+          <div class="form-group"><label>Fin</label><input type="datetime-local" id="mcEventEnd" /></div>
+        </div>
+        <div class="form-group">
+          <label>Couleur</label>
+          <div class="color-picker" id="mcColorPicker">
+            <button class="color-dot dot-blue active" data-color="blue" onclick="selectEventColor(this,'blue')"></button>
+            <button class="color-dot dot-purple" data-color="purple" onclick="selectEventColor(this,'purple')"></button>
+            <button class="color-dot dot-green" data-color="green" onclick="selectEventColor(this,'green')"></button>
+            <button class="color-dot dot-pink" data-color="pink" onclick="selectEventColor(this,'pink')"></button>
+            <button class="color-dot dot-yellow" data-color="yellow" onclick="selectEventColor(this,'yellow')"></button>
+          </div>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn-secondary" onclick="closeModal('mcEventModal')">Annuler</button>
+        <button class="btn-primary" onclick="saveMcEvent()">Enregistrer</button>
+      </div>
+    </div>
+  </div>
+  <script src="/mission-control/static/js/app.js"></script>
 </body>
 </html>
