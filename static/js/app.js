@@ -939,43 +939,6 @@ async function loadUsage() {
     const el = $('apiUsageList');
     let html = '';
 
-    // --- OpenRouter -------------------------------------------------------
-    if (data.openrouter?.connected) {
-      const used  = Number(data.openrouter.total_usage);
-      const total = Number(data.openrouter.total_credits);
-      const rem   = Number(data.openrouter.remaining);
-      const pct   = data.openrouter.pct_used;
-      const over  = rem < 0;
-      const warn  = pct >= 90;
-      const barW  = Math.min(pct, 100);
-      const dotCls = over ? 'err' : warn ? 'warn' : 'ok';
-      const rowCls = over ? 'api-row-err' : warn ? 'api-row-warn' : '';
-      const valStr = over
-        ? `-$${Math.abs(rem).toFixed(2)} dépassé`
-        : `$${rem.toFixed(2)} restants`;
-      html += `
-        <div class="api-row ${rowCls}">
-          <div class="api-row-head">
-            <span class="api-dot ${dotCls}"></span>
-            <span class="api-name">OpenRouter</span>
-            <span class="api-val">${valStr}</span>
-          </div>
-          <div class="api-bar-track">
-            <div class="api-bar-fill ${over ? 'fill-warn' : warn ? 'fill-warn' : ''}" style="width:${barW}%"></div>
-          </div>
-          <div class="api-sub">$${used.toFixed(2)} utilisés / $${total.toFixed(2)} total (${pct}%)</div>
-        </div>`;
-    } else {
-      html += `
-        <div class="api-row api-row-err">
-          <div class="api-row-head">
-            <span class="api-dot err"></span>
-            <span class="api-name">OpenRouter</span>
-            <span class="api-val">${data.openrouter?.missing_key ? 'Clé manquante' : 'Erreur'}</span>
-          </div>
-        </div>`;
-    }
-
     // --- Claude Pro -------------------------------------------------------
     html += `
       <a class="api-row api-row-link" href="https://claude.ai/settings/limits" target="_blank" rel="noopener">

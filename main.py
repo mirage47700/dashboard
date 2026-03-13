@@ -210,6 +210,7 @@ try:
     )
     _mc_mod = _ilu.module_from_spec(_mc_spec)
     _mc_spec.loader.exec_module(_mc_mod)
+    _mc_mod.init_db()  # Ensure DB is initialized regardless of lifespan execution
     app.mount("/mission-control", _mc_mod.app)
 except Exception as _e:
     print(f"[mission-control] Impossible de monter le sub-app: {_e}")
