@@ -824,7 +824,9 @@ def get_trading_events(start: Optional[str] = None, end: Optional[str] = None):
             events = [e for e in events if e["start_datetime"] <= end + "T23:59:59"]
         return events
     except Exception as e:
-        print(f"[TradingCalendar] Erreur: {e}")
+        import traceback
+        print(f"[TradingCalendar] Erreur /api/events/trading: {e}")
+        traceback.print_exc()
         return []
 
 
