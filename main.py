@@ -1,11 +1,15 @@
 import json
 import os
+import re as _re
 import sqlite3
 import subprocess
 from contextlib import asynccontextmanager
 from datetime import date, datetime, timedelta
+from html import unescape as _unescape
 from pathlib import Path
 from typing import Optional
+
+import requests
 
 from dotenv import load_dotenv
 load_dotenv()
@@ -688,6 +692,127 @@ def get_google_events(start: Optional[str] = None, end: Optional[str] = None):
         return events
     except Exception as e:
         print(f"[Google Calendar] Erreur: {e}")
+        return []
+
+
+# ---------------------------------------------------------------------------
+# Routes - Trading Calendar (tradingcalendar.com via BoomTech API)
+# ---------------------------------------------------------------------------
+
+_TC_CALENDAR_API   = "https://calendar.apiboomtech.com/api/published_calendar"
+_TC_COMP_ID        = "comp-lr5jesl7"
+_TC_BOOMTECH_APP_ID = "13b4a028-00fa-7133-242f-4628106b8c91"
+_TC_SITE_URL       = "https://www.tradingcalendar.com/"
+_TC_CATEGORIES = {
+    57766: "Market Holiday", 57771: "FOMC", 57773: "Macro",
+    57774: "Macro(2)", 58073: "Events", 58096: "Housing",
+    58297: "OPEX", 58310: "Rebalance", 58377: "SPAC", 58378: "IPO",
+    59200: "Stock Split", 59545: "Delisting", 59980: "Commodities",
+    60682: "Spin-Off", 62133: "M&A", 63304: "Recurring Metrics",
+    91489: "Listing Change",
+}
+
+_tc_cache: dict = {}
+_TC_CACHE_TTL = 3600  # 1 heure
+
+
+def _tc_strip_html(s: str) -> str:
+    if not s:
+        return ""
+    return _re.sub(r"\s+", " ", _unescape(_re.sub(r"<[^>]+>", "", s))).strip()
+
+
+def _tc_resolve_categories(cats: list) -> str:
+    names = []
+    for c in cats:
+        if isinstance(c, dict):
+            names.append(c.get("name", f"Unknown({c.get('id')})"))
+        elif isinstance(c, int):
+            names.append(_TC_CATEGORIES.get(c, f"Unknown({c})"))
+        else:
+            names.append(str(c))
+    return ", ".join(names)
+
+
+def _tc_get_token() -> str:
+    headers = {
+        "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 Chrome/120.0.0.0 Safari/537.36",
+        "Accept": "application/json",
+        "Referer": _TC_SITE_URL,
+    }
+    resp = requests.get(f"{_TC_SITE_URL}_api/v1/access-tokens", headers=headers, timeout=30)
+    resp.raise_for_status()
+    data = resp.json()
+    boom_app = data.get("apps", {}).get(_TC_BOOMTECH_APP_ID)
+    if not boom_app:
+        raise RuntimeError("BoomTech app introuvable dans access-tokens")
+    token = boom_app.get("instance")
+    if not token:
+        raise RuntimeError("Clé 'instance' absente dans les données BoomTech")
+    return token
+
+
+def _tc_fetch_events() -> list:
+    """Récupère les événements depuis tradingcalendar.com avec cache 1h."""
+    now = datetime.utcnow()
+    if _tc_cache.get("events") is not None:
+        if (now - _tc_cache["fetched_at"]).total_seconds() < _TC_CACHE_TTL:
+            return _tc_cache["events"]
+
+    token = _tc_get_token()
+    params = {
+        "comp_id": _TC_COMP_ID,
+        "instance": token,
+        "originCompId": "",
+        "time_zone": "America/New_York",
+    }
+    headers = {
+        "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 Chrome/120.0.0.0 Safari/537.36",
+        "Accept": "application/json",
+        "Referer": _TC_SITE_URL,
+        "Origin": "https://www.tradingcalendar.com",
+    }
+    resp = requests.get(_TC_CALENDAR_API, params=params, headers=headers, timeout=60)
+    resp.raise_for_status()
+    raw = resp.json()
+
+    events = []
+    for item in raw.get("events", []):
+        start_raw = item.get("start", "")
+        end_raw   = item.get("end", "")
+        start_dt  = start_raw if "T" in start_raw else (start_raw + "T00:00:00") if start_raw else ""
+        end_dt    = end_raw   if "T" in end_raw   else (end_raw   + "T23:59:59") if end_raw   else start_dt
+        events.append({
+            "id":             "tc_" + str(item.get("id", "")),
+            "title":          item.get("title", ""),
+            "description":    _tc_strip_html(item.get("desc", "")),
+            "start_datetime": start_dt,
+            "end_datetime":   end_dt,
+            "color":          "trading",
+            "source":         "trading",
+            "category":       _tc_resolve_categories(item.get("categories", [])),
+            "link":           item.get("link") or "",
+        })
+
+    events.sort(key=lambda e: e["start_datetime"])
+    _tc_cache["events"]     = events
+    _tc_cache["fetched_at"] = now
+    print(f"[TradingCalendar] {len(events)} événements mis en cache")
+    return events
+
+
+@app.get("/api/events/trading")
+def get_trading_events(start: Optional[str] = None, end: Optional[str] = None):
+    """Événements depuis tradingcalendar.com. Retourne [] en cas d'erreur."""
+    try:
+        events = _tc_fetch_events()
+        if start:
+            events = [e for e in events if e["start_datetime"] >= start]
+        if end:
+            events = [e for e in events if e["start_datetime"] <= end + "T23:59:59"]
+        return events
+    except Exception as e:
+        print(f"[TradingCalendar] Erreur: {e}")
         return []
 
 

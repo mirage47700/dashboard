@@ -449,7 +449,8 @@ html, body {
 .week-event.color-green  { border-color: var(--green); }
 .week-event.color-pink   { border-color: var(--pink); }
 .week-event.color-yellow { border-color: var(--yellow); }
-.week-event.color-google { border-color: var(--google); }
+.week-event.color-google   { border-color: var(--google); }
+.week-event.color-trading  { border-color: var(--trading); }
 
 .week-event-time {
   font-size: 10px;
@@ -504,7 +505,8 @@ html, body {
 .agenda-event.color-purple { border-color: var(--purple); }
 .agenda-event.color-green  { border-color: var(--green); }
 .agenda-event.color-pink   { border-color: var(--pink); }
-.agenda-event.color-yellow { border-color: var(--yellow); }
+.agenda-event.color-yellow  { border-color: var(--yellow); }
+.agenda-event.color-trading { border-color: var(--trading); }
 
 .event-time {
   font-size: 11px;
@@ -855,6 +857,7 @@ html, body {
 ================================================================ */
 :root {
   --google: #4285F4;
+  --trading: #F5A623;
 }
 
 .agenda-event.color-google {
@@ -883,6 +886,34 @@ html, body {
 
 .cal-day.has-event.has-google-event::after {
   background: linear-gradient(to right, var(--green) 50%, var(--google) 50%);
+}
+
+.cal-day.has-trading-event::after {
+  background: var(--trading);
+}
+
+.cal-day.has-event.has-trading-event::after {
+  background: linear-gradient(to right, var(--green) 50%, var(--trading) 50%);
+}
+
+.cal-day.has-google-event.has-trading-event::after {
+  background: linear-gradient(to right, var(--google) 50%, var(--trading) 50%);
+}
+
+.agenda-event.color-trading::before {
+  content: 'TC';
+  position: absolute;
+  top: 6px;
+  right: 28px;
+  font-size: 9px;
+  font-weight: 700;
+  color: var(--trading);
+  background: rgba(245, 166, 35, 0.12);
+  border: 1px solid rgba(245, 166, 35, 0.3);
+  border-radius: 3px;
+  padding: 0 3px;
+  line-height: 14px;
+  letter-spacing: 0.5px;
 }
 
 .toast.info { border-left: 3px solid var(--blue); }
