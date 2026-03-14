@@ -283,11 +283,12 @@ document.querySelectorAll('.filter-btn').forEach(btn => {
 // EVENTS / AGENDA
 // ---------------------------------------------------------------------------
 async function loadEvents() {
-  const [localEvents, googleEvents] = await Promise.all([
+  const [localEvents, googleEvents, tradingEvents] = await Promise.all([
     api('/api/events').catch(() => []),
     api('/api/events/google').catch(() => []),
+    api('/api/events/trading').catch(() => []),
   ]);
-  allEvents = [...localEvents, ...googleEvents].sort(
+  allEvents = [...localEvents, ...googleEvents, ...tradingEvents].sort(
     (a, b) => new Date(a.start_datetime) - new Date(b.start_datetime)
   );
   renderAgendaDay();
@@ -312,7 +313,7 @@ function renderAgendaDay() {
   }
 
   timeline.innerHTML = dayEvents.map(e => {
-    const deleteBtn = e.source === 'google'
+    const deleteBtn = (e.source === 'google' || e.source === 'trading')
       ? ''
       : `<button class="event-delete" onclick="deleteEvent(${e.id})">✕</button>`;
     return `
@@ -364,9 +365,10 @@ function renderMiniCalendar() {
   const todayDate = new Date();
   const todayStr  = today();
 
-  // Days with events (local vs Google)
-  const localEventDays  = new Set(allEvents.filter(e => e.source !== 'google').map(e => e.start_datetime.split('T')[0]));
-  const googleEventDays = new Set(allEvents.filter(e => e.source === 'google').map(e => e.start_datetime.split('T')[0]));
+  // Days with events (local vs Google vs Trading)
+  const localEventDays   = new Set(allEvents.filter(e => e.source !== 'google' && e.source !== 'trading').map(e => e.start_datetime.split('T')[0]));
+  const googleEventDays  = new Set(allEvents.filter(e => e.source === 'google').map(e => e.start_datetime.split('T')[0]));
+  const tradingEventDays = new Set(allEvents.filter(e => e.source === 'trading').map(e => e.start_datetime.split('T')[0]));
 
   const firstDay = new Date(calYear, calMonth, 1);
   const lastDay  = new Date(calYear, calMonth + 1, 0);
@@ -398,10 +400,11 @@ function renderMiniCalendar() {
   for (let d = 1; d <= lastDay.getDate(); d++) {
     const dateStr = `${calYear}-${String(calMonth+1).padStart(2,'0')}-${String(d).padStart(2,'0')}`;
     const isToday   = dateStr === todayStr;
-    const hasLocal  = localEventDays.has(dateStr);
-    const hasGoogle = googleEventDays.has(dateStr);
+    const hasLocal   = localEventDays.has(dateStr);
+    const hasGoogle  = googleEventDays.has(dateStr);
+    const hasTrading = tradingEventDays.has(dateStr);
     const isSelected = dateStr === selectedDate && dateStr !== todayStr;
-    const classes   = ['cal-day', isToday ? 'today' : '', isSelected ? 'selected' : '', hasLocal ? 'has-event' : '', hasGoogle ? 'has-google-event' : ''].filter(Boolean).join(' ');
+    const classes    = ['cal-day', isToday ? 'today' : '', isSelected ? 'selected' : '', hasLocal ? 'has-event' : '', hasGoogle ? 'has-google-event' : '', hasTrading ? 'has-trading-event' : ''].filter(Boolean).join(' ');
     html += `<div class="${classes}" onclick="calDayClick('${dateStr}')">${d}</div>`;
   }
 
