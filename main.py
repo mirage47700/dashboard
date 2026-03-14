@@ -829,6 +829,34 @@ def get_trading_events(start: Optional[str] = None, end: Optional[str] = None):
         return []
 
 
+@app.get("/api/events/trading/debug")
+def debug_trading_events():
+    """Debug : teste chaque étape du fetch trading calendar."""
+    import traceback as tb
+    result = {}
+    try:
+        token = _tc_get_token()
+        result["token_ok"] = True
+        result["token_preview"] = token[:20] + "..."
+    except Exception as e:
+        result["token_ok"] = False
+        result["token_error"] = str(e)
+        result["token_trace"] = tb.format_exc()
+        return result
+    try:
+        params = {"comp_id": _TC_COMP_ID, "instance": token, "originCompId": "", "time_zone": "America/New_York"}
+        headers = {"User-Agent": "Mozilla/5.0", "Accept": "application/json", "Referer": _TC_SITE_URL, "Origin": "https://www.tradingcalendar.com"}
+        resp = requests.get(_TC_CALENDAR_API, params=params, headers=headers, timeout=60)
+        result["api_status"] = resp.status_code
+        raw = resp.json()
+        result["events_count"] = len(raw.get("events", []))
+        result["sample"] = raw.get("events", [])[:2]
+    except Exception as e:
+        result["api_error"] = str(e)
+        result["api_trace"] = tb.format_exc()
+    return result
+
+
 # ---------------------------------------------------------------------------
 # Routes - Dashboard summary
 # ---------------------------------------------------------------------------
