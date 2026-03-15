@@ -1490,17 +1490,90 @@ td.comm { color: var(--text-muted); font-size: 12px; }
 /* ================================================================
    RESPONSIVE
 ================================================================ */
+
+/* ---- 1200px: Tablette large / petit bureau ---- */
 @media (max-width: 1200px) {
   .layout { grid-template-columns: 260px 1fr 240px; position: static; }
   .panel-trading { display: none; }
   .ibkr-section { display: block; }
 }
+
+/* ---- 900px: Mobile — colonne unique ---- */
 @media (max-width: 900px) {
-  .layout { grid-template-columns: 1fr; overflow-y: auto; height: auto; position: static; }
-  .panel { border-right: none; border-bottom: 1px solid var(--border); height: auto; max-height: 50vh; }
-  .panel-side { max-height: none; height: auto; }
-  .side-section { max-height: 40vh; }
-  .panel-trading { display: flex; max-height: 50vh; }
-  .ibkr-tbl { font-size: 12px; }
+  /* Header : wrapping sur deux lignes */
+  .header {
+    height: auto;
+    min-height: 56px;
+    padding: 10px 16px;
+    flex-wrap: wrap;
+    gap: 8px;
+    position: relative;
+    top: auto;
+  }
+  .header-center {
+    order: 3;
+    width: 100%;
+    text-align: center;
+    font-size: 13px;
+  }
+  .header-time { font-size: 18px; }
+
+  /* Layout : colonne unique, scroll naturel */
+  .layout {
+    grid-template-columns: 1fr;
+    overflow-y: auto;
+    height: auto;
+    position: static;
+    top: auto;
+  }
+  .panel {
+    border-right: none;
+    border-bottom: 1px solid var(--border);
+    height: auto;
+    max-height: 55vh;
+  }
+  .panel-side    { max-height: none; height: auto; }
+  .side-section  { max-height: 40vh; }
+  .panel-trading { display: flex; max-height: 55vh; }
+
+  /* Tables IBKR : scroll horizontal */
+  #ibkrTableContainer,
+  #ibkrRawTableContainer { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+  .ibkr-tbl,
+  .ibkr-tbl-sub  { min-width: 560px; }
+  .ibkr-raw-tbl  { min-width: 700px; }
+
+  .ibkr-tbl      { font-size: 12px; }
   .ibkr-tbl thead th, .ibkr-tbl-month td { padding: 8px; }
+}
+
+/* ---- 600px: Petit téléphone ---- */
+@media (max-width: 600px) {
+  /* Header : masquer les éléments non essentiels */
+  .summary-chips  { display: none; }
+  .header-center  { display: none; }
+  .header-right   { gap: 6px; }
+  .tg-btn span    { display: none; }
+
+  /* Panel headers : flex-wrap */
+  .panel-header   { flex-wrap: wrap; gap: 6px; padding: 10px 12px 8px; }
+  .task-filters   { flex-wrap: wrap; }
+  .agenda-view-tabs { gap: 2px; }
+
+  /* Panels légèrement plus hauts sur petit écran */
+  .panel          { max-height: 60vh; }
+  .panel-trading  { max-height: 60vh; }
+  .side-section   { max-height: 50vh; }
+
+  /* Toast pleine largeur */
+  .toast-container { bottom: 12px; right: 12px; left: 12px; }
+  .toast           { max-width: 100%; }
+
+  /* Modal : form-row en colonne */
+  .form-row        { grid-template-columns: 1fr; gap: 8px; }
+
+  /* IBKR section */
+  .ibkr-section-header { padding: 10px 16px 8px; flex-wrap: wrap; }
+  .ibkr-ytd            { margin: 8px 8px 4px; }
+  .ibkr-monthly-list   { padding: 4px 8px 8px; }
 }
