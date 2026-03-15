@@ -53,6 +53,13 @@ html, body {
   z-index: 100;
 }
 
+.header-logo {
+  font-size: 26px;
+  line-height: 1;
+  margin-right: 4px;
+  flex-shrink: 0;
+}
+
 .header-date {
   font-size: 13px;
   color: var(--text-muted);
