@@ -38,7 +38,7 @@ updateClock();
 // ---------------------------------------------------------------------------
 // Tabs
 // ---------------------------------------------------------------------------
-const TABS = ['board','calendar','ibkr','projects','memories','docs','team','office','agents'];
+const TABS = ['board','calendar','ibkr','projects','memories','docs','team','office','agents','cron'];
 let currentTab = 'board';
 
 function switchTab(tab) {
@@ -55,6 +55,7 @@ function switchTab(tab) {
   if (tab === 'team')   { syncOcTeam(true); }   // sync silencieux + loadTeam inclus
   if (tab === 'office') { if (!allMembers.length) syncOcTeam(true); else renderOffice(); }
   if (tab === 'agents')    initAgentsTab();
+  if (tab === 'cron')      loadCron();
 }
 
 // ---------------------------------------------------------------------------
@@ -214,12 +215,6 @@ async function loadHeaderMetrics() {
       api('/api/usage').catch(() => null),
       api('/api/ibkr/perf').catch(() => null),
     ]);
-    const orEl = $('metricOR');
-    if (orEl && usage?.openrouter?.connected) {
-      const rem = usage.openrouter.remaining_credits ?? 0;
-      orEl.textContent = `OR $${rem.toFixed(2)}`;
-      orEl.className = 'mc-metric';
-    }
     const pnlEl = $('metricPnl');
     if (pnlEl && perf?.ytd) {
       const pnl = perf.ytd.pnl_net ?? 0;
@@ -545,26 +540,56 @@ function renderProjects() {
 // ---------------------------------------------------------------------------
 // MEMORIES
 // ---------------------------------------------------------------------------
+function renderMemoryText(text, vault) {
+  // HTML-escape base (sans toucher aux crochets wikilink)
+  let s = text
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;');
+  // ![[embed]] → badge embed
+  s = s.replace(/!\[\[([^\]]+)\]\]/g, (_, ref) => {
+    const href = vault
+      ? `obsidian://open?vault=${encodeURIComponent(vault)}&file=${encodeURIComponent(ref)}`
+      : null;
+    const tag = href ? `<a href="${href}" class="memory-embed" title="${ref}">` : `<span class="memory-embed">`;
+    const end = href ? `</a>` : `</span>`;
+    return `${tag}📎 ${ref}${end}`;
+  });
+  // [[note|alias]] ou [[note]] → lien wikilink
+  s = s.replace(/\[\[([^\]]+)\]\]/g, (_, raw) => {
+    const [file, alias] = raw.split('|');
+    const label = alias || file;
+    const href = vault
+      ? `obsidian://open?vault=${encodeURIComponent(vault)}&file=${encodeURIComponent(file)}`
+      : null;
+    const tag = href ? `<a href="${href}" class="memory-wikilink">` : `<span class="memory-wikilink">`;
+    const end = href ? `</a>` : `</span>`;
+    return `${tag}[[${label}]]${end}`;
+  });
+  return s;
+}
+
 async function loadMemories() {
   const el = $('memoriesContainer');
   if (!el) return;
   el.innerHTML = '<div style="color:#64748b;padding:20px">Chargement...</div>';
   try {
-    const days = await api('/mission-control/api/memories');
+    const { vault, days } = await api('/mission-control/api/memories');
     if (!days.length) {
-      el.innerHTML = '<div style="color:#64748b;padding:40px;text-align:center">Aucune memoire trouvee dans memories.md</div>';
+      el.innerHTML = '<div style="color:#64748b;padding:40px;text-align:center">Aucune mémoire trouvée</div>';
       return;
     }
     el.innerHTML = days.map(d => `
       <div class="memory-day">
         <div class="memory-date">${escHtml(d.date)}</div>
         <div class="memory-items">
-          ${d.items.map(item => `<div class="memory-item">${escHtml(item)}</div>`).join('')}
+          ${d.items.map(item => `<div class="memory-item">${renderMemoryText(item, vault)}</div>`).join('')}
         </div>
       </div>
     `).join('');
   } catch(_) {
-    el.innerHTML = '<div style="color:#ef4444;padding:20px">Erreur de lecture memories.md</div>';
+    el.innerHTML = '<div style="color:#ef4444;padding:20px">Erreur de lecture memories</div>';
   }
 }
 
@@ -1204,6 +1229,46 @@ function renderLogLine(l) {
     ${role  ? `<span class="oc-log-role ${role}">${escHtml(role)}</span>` : ''}
     <span class="oc-log-content">${escHtml(String(content))}</span>
   </div>`;
+}
+
+// ---------------------------------------------------------------------------
+// CRON
+// ---------------------------------------------------------------------------
+async function loadCron() {
+  const el = $('cronContainer');
+  if (!el) return;
+  el.innerHTML = '<div class="cron-loading">Chargement…</div>';
+  try {
+    const jobs = await api('/mission-control/api/cron');
+    if (!jobs.length) {
+      el.innerHTML = '<div class="cron-empty">Aucune tâche cron trouvée (crontab vide).</div>';
+      return;
+    }
+    el.innerHTML = `
+      <table class="cron-table">
+        <thead>
+          <tr>
+            <th>Fréquence</th>
+            <th>Schedule</th>
+            <th>Commande</th>
+            <th></th>
+          </tr>
+        </thead>
+        <tbody>
+          ${jobs.map(j => `
+            <tr class="cron-row">
+              <td class="cron-human">${escHtml(j.human || j.schedule)}</td>
+              <td class="cron-schedule"><code>${escHtml(j.schedule)}</code></td>
+              <td class="cron-cmd"><code>${escHtml(j.command)}</code></td>
+              <td><button class="cron-copy" onclick="navigator.clipboard.writeText(${JSON.stringify(j.raw)})" title="Copier">⧉</button></td>
+            </tr>
+          `).join('')}
+        </tbody>
+      </table>
+    `;
+  } catch(_) {
+    el.innerHTML = '<div class="cron-empty" style="color:var(--neg)">Erreur de lecture crontab.</div>';
+  }
 }
 
 // ── Toast helper (si pas déjà défini) ────────────────────────────────────────

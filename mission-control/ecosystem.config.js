@@ -7,7 +7,14 @@ module.exports = {
     interpreter: 'none',
     env: {
       MEMORIES_PATH: '/root/memories.md',
-      DB_PATH: '/home/dashboard/mission-control/mission_control.db'
+      OBSIDIAN_VAULT: '',
+      DB_PATH: '/home/dashboard/mission-control/mission_control.db',
+      // ── Twilio Voice ──────────────────────────────────────
+      KOKORO_URL: 'http://localhost:8001',
+      KOKORO_VOICE: 'af_alloy',
+      PUBLIC_URL: '',           // ← URL publique Cloudflare tunnel (ex: https://xxx.trycloudflare.com)
+      OPENCLAW_CHAT_PATH: '/api/chat',
+      TWILIO_LANG: 'fr-FR'
     },
     autorestart: true,
     watch: false,
