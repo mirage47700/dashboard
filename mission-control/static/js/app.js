@@ -539,26 +539,56 @@ function renderProjects() {
 // ---------------------------------------------------------------------------
 // MEMORIES
 // ---------------------------------------------------------------------------
+function renderMemoryText(text, vault) {
+  // HTML-escape base (sans toucher aux crochets wikilink)
+  let s = text
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;');
+  // ![[embed]] → badge embed
+  s = s.replace(/!\[\[([^\]]+)\]\]/g, (_, ref) => {
+    const href = vault
+      ? `obsidian://open?vault=${encodeURIComponent(vault)}&file=${encodeURIComponent(ref)}`
+      : null;
+    const tag = href ? `<a href="${href}" class="memory-embed" title="${ref}">` : `<span class="memory-embed">`;
+    const end = href ? `</a>` : `</span>`;
+    return `${tag}📎 ${ref}${end}`;
+  });
+  // [[note|alias]] ou [[note]] → lien wikilink
+  s = s.replace(/\[\[([^\]]+)\]\]/g, (_, raw) => {
+    const [file, alias] = raw.split('|');
+    const label = alias || file;
+    const href = vault
+      ? `obsidian://open?vault=${encodeURIComponent(vault)}&file=${encodeURIComponent(file)}`
+      : null;
+    const tag = href ? `<a href="${href}" class="memory-wikilink">` : `<span class="memory-wikilink">`;
+    const end = href ? `</a>` : `</span>`;
+    return `${tag}[[${label}]]${end}`;
+  });
+  return s;
+}
+
 async function loadMemories() {
   const el = $('memoriesContainer');
   if (!el) return;
   el.innerHTML = '<div style="color:#64748b;padding:20px">Chargement...</div>';
   try {
-    const days = await api('/mission-control/api/memories');
+    const { vault, days } = await api('/mission-control/api/memories');
     if (!days.length) {
-      el.innerHTML = '<div style="color:#64748b;padding:40px;text-align:center">Aucune memoire trouvee dans memories.md</div>';
+      el.innerHTML = '<div style="color:#64748b;padding:40px;text-align:center">Aucune mémoire trouvée</div>';
       return;
     }
     el.innerHTML = days.map(d => `
       <div class="memory-day">
         <div class="memory-date">${escHtml(d.date)}</div>
         <div class="memory-items">
-          ${d.items.map(item => `<div class="memory-item">${escHtml(item)}</div>`).join('')}
+          ${d.items.map(item => `<div class="memory-item">${renderMemoryText(item, vault)}</div>`).join('')}
         </div>
       </div>
     `).join('');
   } catch(_) {
-    el.innerHTML = '<div style="color:#ef4444;padding:20px">Erreur de lecture memories.md</div>';
+    el.innerHTML = '<div style="color:#ef4444;padding:20px">Erreur de lecture memories</div>';
   }
 }
 

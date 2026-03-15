@@ -7,6 +7,7 @@ module.exports = {
     interpreter: 'none',
     env: {
       MEMORIES_PATH: '/root/memories.md',
+      OBSIDIAN_VAULT: '',
       DB_PATH: '/home/dashboard/mission-control/mission_control.db'
     },
     autorestart: true,

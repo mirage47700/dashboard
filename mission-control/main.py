@@ -10,6 +10,7 @@ from pathlib import Path
 from contextlib import asynccontextmanager
 
 MEMORIES_PATH  = os.getenv("MEMORIES_PATH", "/root/memories.md")
+OBSIDIAN_VAULT = os.getenv("OBSIDIAN_VAULT", "")
 DB_PATH        = Path(__file__).parent / "mission_control.db"
 OPENCLAW_URL   = os.getenv("OPENCLAW_URL", "http://localhost:8000")
 OPENCLAW_TOKEN = os.getenv("OPENCLAW_TOKEN", "")
@@ -464,13 +465,21 @@ def openclaw_sync_team():
 def get_memories():
     path = Path(MEMORIES_PATH)
     if not path.exists():
-        return []
+        return {"vault": OBSIDIAN_VAULT, "days": []}
     text = path.read_text(encoding="utf-8", errors="replace")
-    return _parse_memories(text)
+    return {"vault": OBSIDIAN_VAULT, "days": _parse_memories(text)}
 
 def _parse_memories(text: str) -> list:
     entries, current_date, current_items = [], None, []
-    for line in text.splitlines():
+    lines = text.splitlines()
+    i = 0
+    # Skip YAML / qmd frontmatter (--- ... ---)
+    if lines and lines[0].strip() == '---':
+        i = 1
+        while i < len(lines) and lines[i].strip() != '---':
+            i += 1
+        i += 1  # skip closing ---
+    for line in lines[i:]:
         m = re.search(r'(\d{4}-\d{2}-\d{2})', line)
         is_header = line.startswith('#') or re.match(r'^\[?\d{4}-\d{2}-\d{2}', line.strip())
         if m and is_header:
@@ -478,7 +487,9 @@ def _parse_memories(text: str) -> list:
                 entries.append({"date": current_date, "items": current_items})
             current_date = m.group(1)
             current_items = []
-            rest = re.sub(r'#|\[|\]|\d{4}-\d{2}-\d{2}|:', '', line).strip()
+            # Strip only # and date, preserve wikilinks
+            rest = re.sub(r'^#+\s*', '', line)
+            rest = re.sub(r'\d{4}-\d{2}-\d{2}:?', '', rest).strip()
             if rest:
                 current_items.append(rest)
         elif line.strip() and not line.startswith('#'):
