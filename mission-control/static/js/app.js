@@ -214,12 +214,6 @@ async function loadHeaderMetrics() {
       api('/api/usage').catch(() => null),
       api('/api/ibkr/perf').catch(() => null),
     ]);
-    const orEl = $('metricOR');
-    if (orEl && usage?.openrouter?.connected) {
-      const rem = usage.openrouter.remaining_credits ?? 0;
-      orEl.textContent = `OR $${rem.toFixed(2)}`;
-      orEl.className = 'mc-metric';
-    }
     const pnlEl = $('metricPnl');
     if (pnlEl && perf?.ytd) {
       const pnl = perf.ytd.pnl_net ?? 0;
