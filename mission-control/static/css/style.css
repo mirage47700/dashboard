@@ -781,3 +781,103 @@ textarea:focus, input:focus, select:focus { border-color: var(--accent); }
 ::-webkit-scrollbar { width: 5px; height: 5px; }
 ::-webkit-scrollbar-track { background: transparent; }
 ::-webkit-scrollbar-thumb { background: #2a2f3d; border-radius: 3px; }
+
+/* ================================================================
+   RESPONSIVE
+================================================================ */
+
+/* ---- 1024px: Tablette ---- */
+@media (max-width: 1024px) {
+  .mc-header     { padding: 0 16px; gap: 10px; }
+  .mc-metrics    { gap: 6px; }
+  .mc-metric     { padding: 3px 8px; font-size: 11px; }
+  .activity-panel { width: 220px; }
+  .office-ticker  { width: 220px; }
+}
+
+/* ---- 768px: Mobile paysage / petite tablette ---- */
+@media (max-width: 768px) {
+  /* Header : deux rangées */
+  .mc-header {
+    height: auto;
+    min-height: 48px;
+    padding: 10px 16px;
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+  .mc-logo-sub { display: none; }
+  .mc-hb       { margin-left: 0; }
+  .mc-metrics  { order: 4; width: 100%; }
+  .mc-clock    { font-size: 12px; }
+  .mc-back-btn { font-size: 11px; padding: 3px 8px; }
+
+  /* Onglets : scroll horizontal sans retour à la ligne */
+  .mc-tabs {
+    padding: 6px 16px 0;
+    overflow-x: auto;
+    scrollbar-width: none;
+    -webkit-overflow-scrolling: touch;
+    flex-wrap: nowrap;
+  }
+  .mc-tabs::-webkit-scrollbar { display: none; }
+  .mc-tab { flex-shrink: 0; padding: 7px 14px; font-size: 12px; }
+
+  /* Sections */
+  .mc-section      { padding: 16px; min-height: calc(100vh - 140px); }
+  .section-toolbar { gap: 8px; flex-wrap: wrap; }
+  .search-input    { width: 130px; }
+
+  /* Board : panneau activité sous le kanban */
+  .board-layout   { flex-direction: column; }
+  .activity-panel { width: 100%; max-height: 220px; }
+
+  /* Calendar : mini calendrier au-dessus de la timeline */
+  .mc-agenda-layout { flex-direction: column; }
+  .mini-calendar {
+    width: 100%;
+    border-right: none;
+    border-bottom: 1px solid var(--border);
+    padding: 12px;
+  }
+
+  /* Office : ticker sous le plateau */
+  .office-wrapper { flex-direction: column; }
+  .office-ticker  { width: 100%; max-height: 220px; }
+
+  /* IBKR : scroll horizontal des tables */
+  .ibkr-monthly,
+  .ibkr-trades { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+  .ibkr-table  { min-width: 500px; }
+
+  /* Formulaires : form-row en colonne */
+  .form-row { flex-direction: column; gap: 10px; }
+}
+
+/* ---- 480px: Petit téléphone ---- */
+@media (max-width: 480px) {
+  .mc-header    { padding: 8px 12px; gap: 6px; }
+  .mc-logo-icon { width: 26px; height: 26px; font-size: 13px; }
+  .mc-logo-text { font-size: 13px; }
+  .mc-metrics   { display: none; }
+
+  .mc-tabs { padding: 4px 12px 0; }
+  .mc-tab  { padding: 6px 12px; font-size: 11px; }
+
+  .mc-section      { padding: 12px; }
+  .section-toolbar h2 { font-size: 14px; }
+  .search-input    { width: 100px; }
+
+  /* Kanban : colonnes légèrement plus étroites */
+  .kanban-col { min-width: 180px; }
+
+  /* Team cards : taille réduite */
+  .team-card            { width: 160px; padding: 14px; }
+  .team-card.main-agent { width: 200px; }
+
+  /* Office floor : cellules plus petites */
+  .office-floor {
+    grid-template-columns: repeat(auto-fill, minmax(130px, 1fr));
+    padding: 12px;
+    gap: 10px;
+  }
+}

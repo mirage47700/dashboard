@@ -193,6 +193,7 @@ async def lifespan(app: FastAPI):
     if IBKR_FLEX_TOKEN and IBKR_FLEX_QUERY_ID:
         asyncio.create_task(_schedule_ibkr_sync())
     asyncio.create_task(_schedule_trading_calendar_sync())
+    asyncio.create_task(_schedule_economic_release_watcher())
     yield
 
 
@@ -2381,3 +2382,215 @@ async def sync_trading_calendar_to_gcal(days_ahead: int = 90):
     except Exception as e:
         print(f"[GCal Sync] Erreur: {e}")
         raise HTTPException(status_code=500, detail=f"Erreur Google Calendar: {e}")
+
+
+# ---------------------------------------------------------------------------
+# Routes — Trading Calendar: agent openclaw
+# ---------------------------------------------------------------------------
+
+@app.get("/api/trading-calendar/now")
+def get_trading_calendar_now(window_before: int = 90, window_after: int = 15):
+    """
+    Retourne les événements économiques qui viennent de sortir ou vont sortir.
+    window_before : minutes avant maintenant (défaut 90 — cherche les releases récentes)
+    window_after  : minutes après maintenant (défaut 15 — anticipe les prochaines)
+
+    Usage openclaw :
+      Poller toutes les 2-5 min. Quand has_actual=True et fired=True → analyser le chiffre.
+      Quand has_actual=False et fired=True → appeler POST /api/trading-calendar/refresh-economic.
+    """
+    from zoneinfo import ZoneInfo
+    now_et = datetime.now(ZoneInfo("America/New_York"))
+    today  = now_et.strftime("%Y-%m-%d")
+
+    conn = get_db()
+    rows = conn.execute(
+        "SELECT * FROM economic_releases WHERE release_date = ? ORDER BY indicator",
+        (today,),
+    ).fetchall()
+    conn.close()
+
+    events = []
+    for r in rows:
+        r = dict(r)
+        indicator = r["indicator"]
+        time_et_str = _RELEASE_TIMES_ET.get(indicator, "08:30")
+        h, m = int(time_et_str.split(":")[0]), int(time_et_str.split(":")[1])
+        event_et = now_et.replace(hour=h, minute=m, second=0, microsecond=0)
+        delta_min = (event_et - now_et).total_seconds() / 60  # négatif = passé
+
+        if -window_before <= delta_min <= window_after:
+            fired = delta_min < 0
+            events.append({
+                "indicator": indicator,
+                "date": today,
+                "time_et": time_et_str,
+                "time_utc": event_et.astimezone(ZoneInfo("UTC")).strftime("%H:%M"),
+                "fired": fired,
+                "delta_minutes": round(delta_min),
+                "estimate":   r.get("estimate", "") or "",
+                "actual":     r.get("actual",   "") or "",
+                "revision":   r.get("revision", "") or "",
+                "has_actual": bool(r.get("actual", "")),
+            })
+
+    # Trier par heure de release
+    events.sort(key=lambda e: e["time_et"])
+    return {
+        "now_et": now_et.strftime("%H:%M"),
+        "date":   today,
+        "count":  len(events),
+        "events": events,
+    }
+
+
+def _do_scrape_economic_only(indicators: list[str] | None = None) -> dict:
+    """Scrape uniquement les pages économiques (plus rapide que le scrape complet)."""
+    from playwright.sync_api import sync_playwright
+
+    targets = indicators or ["CPI", "NFP", "PCE", "JOLTS"]
+    pages_to_fetch = {k: f"/{k.lower()}" for k in targets}
+    # NFP path est /nfp
+    pages_to_fetch["NFP"] = "/nfp"
+
+    proxy = _get_playwright_proxy()
+    raw_texts: dict[str, str] = {}
+
+    with sync_playwright() as p:
+        browser = p.firefox.launch(headless=True, proxy=proxy)
+        ctx = browser.new_context(ignore_https_errors=True)
+        for key, path in pages_to_fetch.items():
+            page = ctx.new_page()
+            try:
+                page.goto(f"https://www.tradingcalendar.com{path}", timeout=60000)
+                page.wait_for_load_state("networkidle", timeout=60000)
+                raw_texts[key] = page.inner_text("body")
+            except Exception as e:
+                print(f"[EconomicScrape] Erreur {path}: {e}")
+                raw_texts[key] = ""
+            finally:
+                page.close()
+        browser.close()
+
+    results = {}
+    for ind in targets:
+        results[ind] = _parse_economic_table(raw_texts.get(ind, ""), ind)
+
+    return results
+
+
+async def _run_scrape_economic_only(indicators: list[str] | None = None) -> dict:
+    loop = asyncio.get_event_loop()
+    return await loop.run_in_executor(
+        _scraper_executor,
+        lambda: _do_scrape_economic_only(indicators),
+    )
+
+
+@app.post("/api/trading-calendar/refresh-economic")
+async def refresh_economic(indicator: Optional[str] = None):
+    """
+    Scrape léger : récupère uniquement les valeurs économiques (CPI, NFP, PCE, JOLTS).
+    Plus rapide que /refresh complet. Idéal pour openclaw après qu'un chiffre est tombé.
+
+    ?indicator=CPI  → scrape seulement CPI (encore plus rapide)
+    sans paramètre  → scrape tous les indicateurs
+    """
+    targets = [indicator.upper()] if indicator else None
+    try:
+        results = await _run_scrape_economic_only(targets)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+    # Persister en DB
+    conn = get_db()
+    saved = {}
+    for ind, items in results.items():
+        saved[ind] = []
+        for item in items:
+            conn.execute(
+                "INSERT OR REPLACE INTO economic_releases "
+                "(indicator, release_date, estimate, actual, revision) VALUES (?, ?, ?, ?, ?)",
+                (item["indicator"], item["release_date"], item["estimate"], item["actual"], item["revision"]),
+            )
+            saved[ind].append({
+                "date":     item["release_date"],
+                "estimate": item["estimate"],
+                "actual":   item["actual"],
+                "revision": item["revision"],
+            })
+    conn.commit()
+    conn.close()
+    return {"status": "ok", "scraped": saved}
+
+
+# ---------------------------------------------------------------------------
+# Background watcher — détecte les releases et notifie mission-control
+# ---------------------------------------------------------------------------
+
+_ec_release_notified: set[str] = set()  # garde en mémoire les releases déjà notifiées
+
+async def _schedule_economic_release_watcher():
+    """
+    Vérifie toutes les 2 minutes si un indicateur économique vient de sortir.
+    Dès qu'il sort, déclenche un scrape pour récupérer l'actual et poste une activité
+    dans mission-control (POST /mission-control/api/activity).
+    """
+    import asyncio
+    from zoneinfo import ZoneInfo
+
+    await asyncio.sleep(30)  # laisse le temps au serveur de démarrer
+    while True:
+        try:
+            from zoneinfo import ZoneInfo as _ZI
+            now_et  = datetime.now(_ZI("America/New_York"))
+            today   = now_et.strftime("%Y-%m-%d")
+
+            for indicator, time_et_str in _RELEASE_TIMES_ET.items():
+                h, m  = int(time_et_str.split(":")[0]), int(time_et_str.split(":")[1])
+                ev_et = now_et.replace(hour=h, minute=m, second=0, microsecond=0)
+                delta = (now_et - ev_et).total_seconds() / 60  # positif = passé
+
+                key = f"{today}_{indicator}"
+                if 0 <= delta <= 30 and key not in _ec_release_notified:
+                    print(f"[EcoWatcher] {indicator} vient de sortir à {time_et_str} ET — scrape en cours…")
+                    _ec_release_notified.add(key)
+                    try:
+                        results = await _run_scrape_economic_only([indicator])
+                        # Cherche l'actual pour aujourd'hui
+                        today_items = [r for r in results.get(indicator, []) if r["release_date"] == today]
+                        if today_items:
+                            item = today_items[0]
+                            conn = get_db()
+                            conn.execute(
+                                "INSERT OR REPLACE INTO economic_releases "
+                                "(indicator, release_date, estimate, actual, revision) VALUES (?, ?, ?, ?, ?)",
+                                (item["indicator"], item["release_date"], item["estimate"], item["actual"], item["revision"]),
+                            )
+                            conn.commit()
+                            conn.close()
+                            actual   = item["actual"]   or "N/A"
+                            estimate = item["estimate"] or "N/A"
+                            revision = item["revision"] or ""
+                            msg = f"{indicator} sorti à {time_et_str} ET | Actual: {actual} | Estimate: {estimate}"
+                            if revision:
+                                msg += f" | Revision: {revision}"
+                            print(f"[EcoWatcher] {msg}")
+                            # Notifie mission-control
+                            try:
+                                import httpx as _hx
+                                _hx.post(
+                                    "http://127.0.0.1:8082/api/activity",
+                                    json={"agent": "trading-watcher", "action": msg,
+                                          "details": {"indicator": indicator, "actual": actual,
+                                                      "estimate": estimate, "revision": revision}},
+                                    timeout=5,
+                                )
+                            except Exception:
+                                pass
+                    except Exception as e:
+                        print(f"[EcoWatcher] Erreur scrape {indicator}: {e}")
+        except Exception as e:
+            print(f"[EcoWatcher] Erreur boucle: {e}")
+
+        await asyncio.sleep(120)  # poll toutes les 2 min

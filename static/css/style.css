@@ -1490,11 +1490,10 @@ td.comm { color: var(--text-muted); font-size: 12px; }
 /* ================================================================
    RESPONSIVE
 ================================================================ */
-/* ================================================================
-   RESPONSIVE — COMPACT DESKTOP  (≤ 1350px)
-================================================================ */
-@media (max-width: 1350px) {
-  .layout { grid-template-columns: 260px 1fr 240px; }
+
+/* ---- 1200px: Tablette large / petit bureau ---- */
+@media (max-width: 1200px) {
+  .layout { grid-template-columns: 260px 1fr 240px; position: static; }
   .panel-trading { display: none; }
   .ibkr-section { display: block; }
   .header-greeting { font-size: 14px; }
@@ -1545,140 +1544,82 @@ td.comm { color: var(--text-muted); font-size: 12px; }
   .modal { width: 96vw; margin: 0 auto; }
 }
 
-/* ================================================================
-   RESPONSIVE — MOBILE  (≤ 600px)
-================================================================ */
-@media (max-width: 600px) {
-  /* Header minimaliste */
-  .header { padding: 8px 12px; height: 52px; }
-  .header-left { flex-direction: row; align-items: center; gap: 8px; }
-  .header-date { display: none; }
-  .header-time { font-size: 16px; }
-  .tg-btn span { display: none; }
-  .tg-btn { padding: 5px 7px; gap: 0; }
-  .header-right { gap: 6px; }
+/* ---- 900px: Mobile — colonne unique ---- */
+@media (max-width: 900px) {
+  /* Header : wrapping sur deux lignes */
+  .header {
+    height: auto;
+    min-height: 56px;
+    padding: 10px 16px;
+    flex-wrap: wrap;
+    gap: 8px;
+    position: relative;
+    top: auto;
+  }
+  .header-center {
+    order: 3;
+    width: 100%;
+    text-align: center;
+    font-size: 13px;
+  }
+  .header-time { font-size: 18px; }
 
-  /* Layout 1 colonne — chaque panel = plein écran */
+  /* Layout : colonne unique, scroll naturel */
   .layout {
-    display: block;
-    height: calc(100dvh - 52px - 56px);  /* header + mobile-nav */
-    overflow: hidden;
-    position: sticky;
-    top: 52px;
-  }
-
-  /* Tous les panels cachés sauf le panel actif */
-  .panel {
-    display: none;
-    height: 100%;
-    max-height: none;
-    border-right: none;
-    border-bottom: none;
-  }
-  .panel.mobile-active { display: flex; }
-
-  /* Panel side visible en mode mobile (activé par la nav) */
-  .panel-side {
-    display: none;
-    height: 100%;
-    overflow: hidden;
-  }
-  .panel-side.mobile-active { display: flex; }
-  .panel-trading {
-    display: none;
-    height: 100%;
-    overflow: hidden;
-  }
-  .panel-trading.mobile-active { display: flex; }
-
-  /* Modals en bottom sheet */
-  .modal-overlay { align-items: flex-end; padding: 0; }
-  .modal {
-    width: 100vw;
-    max-width: 100vw;
-    border-radius: var(--radius) var(--radius) 0 0;
-    max-height: 90dvh;
+    grid-template-columns: 1fr;
     overflow-y: auto;
-    animation: sheetUp 0.22s ease;
+    height: auto;
+    position: static;
+    top: auto;
   }
-  @keyframes sheetUp {
-    from { transform: translateY(100%); }
-    to   { transform: translateY(0); }
+  .panel {
+    border-right: none;
+    border-bottom: 1px solid var(--border);
+    height: auto;
+    max-height: 55vh;
   }
+  .panel-side    { max-height: none; height: auto; }
+  .side-section  { max-height: 40vh; }
+  .panel-trading { display: flex; max-height: 55vh; }
 
-  /* Panel-header padding réduit */
-  .panel-header { padding: 10px 12px 8px; }
-  .panel-header h2 { font-size: 13px; }
+  /* Tables IBKR : scroll horizontal */
+  #ibkrTableContainer,
+  #ibkrRawTableContainer { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+  .ibkr-tbl,
+  .ibkr-tbl-sub  { min-width: 560px; }
+  .ibkr-raw-tbl  { min-width: 700px; }
 
-  /* Agenda : mini-cal plus compact */
-  .mini-calendar { padding: 6px 8px; }
-  .cal-grid { gap: 1px; }
-  .cal-cell { font-size: 10px; padding: 2px 0; }
-  .cal-dayname { font-size: 9px; padding: 2px 0; }
-
-  /* Tasks : padding réduit */
-  .task-card { padding: 9px 10px; }
-  .task-title { font-size: 13px; }
-
-  /* Navigation mobile */
-  .mobile-nav { display: flex; }
+  .ibkr-tbl      { font-size: 12px; }
+  .ibkr-tbl thead th, .ibkr-tbl-month td { padding: 8px; }
 }
 
-/* ================================================================
-   RESPONSIVE — PETITS MOBILES  (≤ 380px)
-================================================================ */
-@media (max-width: 380px) {
-  .mobile-nav-item span { display: none; }
-  .mobile-nav { gap: 0; }
-  .mobile-nav-item { font-size: 18px; }
-  .header-time { font-size: 14px; }
-}
+/* ---- 600px: Petit téléphone ---- */
+@media (max-width: 600px) {
+  /* Header : masquer les éléments non essentiels */
+  .summary-chips  { display: none; }
+  .header-center  { display: none; }
+  .header-right   { gap: 6px; }
+  .tg-btn span    { display: none; }
 
-/* ================================================================
-   BOTTOM NAV MOBILE  (cachée par défaut, visible ≤ 600px)
-================================================================ */
-.mobile-nav {
-  display: none;
-  position: fixed;
-  bottom: 0; left: 0; right: 0;
-  height: 56px;
-  background: var(--bg-panel);
-  border-top: 1px solid var(--border);
-  z-index: 200;
-  align-items: stretch;
-  backdrop-filter: blur(12px);
-}
+  /* Panel headers : flex-wrap */
+  .panel-header   { flex-wrap: wrap; gap: 6px; padding: 10px 12px 8px; }
+  .task-filters   { flex-wrap: wrap; }
+  .agenda-view-tabs { gap: 2px; }
 
-.mobile-nav-item {
-  flex: 1;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  gap: 3px;
-  background: none;
-  border: none;
-  color: var(--text-muted);
-  cursor: pointer;
-  font-size: 10px;
-  font-weight: 500;
-  transition: color var(--transition);
-  padding: 6px 4px;
-  position: relative;
-}
+  /* Panels légèrement plus hauts sur petit écran */
+  .panel          { max-height: 60vh; }
+  .panel-trading  { max-height: 60vh; }
+  .side-section   { max-height: 50vh; }
 
-.mobile-nav-item .nav-icon { font-size: 18px; line-height: 1; }
-.mobile-nav-item span { font-size: 10px; line-height: 1; }
+  /* Toast pleine largeur */
+  .toast-container { bottom: 12px; right: 12px; left: 12px; }
+  .toast           { max-width: 100%; }
 
-.mobile-nav-item.active {
-  color: var(--accent);
+  /* Modal : form-row en colonne */
+  .form-row        { grid-template-columns: 1fr; gap: 8px; }
+
+  /* IBKR section */
+  .ibkr-section-header { padding: 10px 16px 8px; flex-wrap: wrap; }
+  .ibkr-ytd            { margin: 8px 8px 4px; }
+  .ibkr-monthly-list   { padding: 4px 8px 8px; }
 }
-.mobile-nav-item.active::before {
-  content: '';
-  position: absolute;
-  top: 0; left: 20%; right: 20%;
-  height: 2px;
-  background: var(--accent);
-  border-radius: 0 0 2px 2px;
-}
-.mobile-nav-item:active { opacity: .7; }
