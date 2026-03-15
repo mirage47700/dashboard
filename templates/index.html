@@ -233,6 +233,22 @@
     <div id="ibkrRawTableContainer"></div>
   </section>
 
+  <!-- BOTTOM NAV MOBILE -->
+  <nav class="mobile-nav" id="mobileNav" role="navigation" aria-label="Navigation mobile">
+    <button class="mobile-nav-item active" id="mnAgenda"  onclick="mobileSwitchPanel('agenda')">
+      <span class="nav-icon">📅</span><span>Agenda</span>
+    </button>
+    <button class="mobile-nav-item"        id="mnTasks"   onclick="mobileSwitchPanel('tasks')">
+      <span class="nav-icon">✅</span><span>Tâches</span>
+    </button>
+    <button class="mobile-nav-item"        id="mnSide"    onclick="mobileSwitchPanel('side')">
+      <span class="nav-icon">📊</span><span>APIs</span>
+    </button>
+    <button class="mobile-nav-item"        id="mnTrading" onclick="mobileSwitchPanel('trading')">
+      <span class="nav-icon">📈</span><span>Trading</span>
+    </button>
+  </nav>
+
   <script src="/static/js/app.js"></script>
 </body>
 </html>

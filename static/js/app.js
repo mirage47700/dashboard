@@ -3,6 +3,72 @@
 ================================================================ */
 
 // ---------------------------------------------------------------------------
+// MOBILE NAV
+// ---------------------------------------------------------------------------
+// el = sélecteur CSS, btn = ID du bouton de nav mobile
+const MOBILE_PANELS = {
+  agenda:  { el: '.panel-agenda',  btn: 'mnAgenda'  },
+  tasks:   { el: '.panel-tasks',   btn: 'mnTasks'   },
+  side:    { el: '.panel-side',    btn: 'mnSide'    },
+  trading: { el: '.panel-trading', btn: 'mnTrading' },
+};
+
+let _currentMobilePanel = 'agenda';
+
+function isMobile() {
+  return window.innerWidth <= 600;
+}
+
+function mobileSwitchPanel(name) {
+  if (!isMobile()) return;
+
+  // Désactive tous les panels et boutons
+  Object.values(MOBILE_PANELS).forEach(({ el, btn }) => {
+    const panel = document.querySelector(el);
+    const btnEl = document.getElementById(btn);
+    if (panel) panel.classList.remove('mobile-active');
+    if (btnEl) btnEl.classList.remove('active');
+  });
+
+  // Active le panel demandé
+  const target = MOBILE_PANELS[name];
+  if (target) {
+    const panel = document.querySelector(target.el);
+    const btnEl = document.getElementById(target.btn);
+    if (panel) panel.classList.add('mobile-active');
+    if (btnEl) btnEl.classList.add('active');
+  }
+
+  _currentMobilePanel = name;
+
+  // Charge les données si nécessaire
+  if (name === 'side')    loadUsage();
+  if (name === 'trading') loadTrading && loadTrading();
+}
+
+function initMobileNav() {
+  if (!isMobile()) return;
+  mobileSwitchPanel('agenda');
+}
+
+// Réinitialise au resize (ex: rotation écran)
+let _resizeTimer;
+window.addEventListener('resize', () => {
+  clearTimeout(_resizeTimer);
+  _resizeTimer = setTimeout(() => {
+    if (isMobile()) {
+      mobileSwitchPanel(_currentMobilePanel);
+    } else {
+      // Sur desktop : retire toutes les classes mobile-active
+      Object.values(MOBILE_PANELS).forEach(({ el }) => {
+        const panel = document.querySelector(el);
+        if (panel) panel.classList.remove('mobile-active');
+      });
+    }
+  }, 150);
+});
+
+// ---------------------------------------------------------------------------
 // State
 // ---------------------------------------------------------------------------
 let allTasks   = [];
@@ -1024,6 +1090,9 @@ async function init() {
   checkGoogleStatus();
   checkTelegramStatus();
   loadUsage();
+
+  // Mobile nav
+  initMobileNav();
 }
 
 // ---------------------------------------------------------------------------

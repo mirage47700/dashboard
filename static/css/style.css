@@ -1490,17 +1490,195 @@ td.comm { color: var(--text-muted); font-size: 12px; }
 /* ================================================================
    RESPONSIVE
 ================================================================ */
-@media (max-width: 1200px) {
-  .layout { grid-template-columns: 260px 1fr 240px; position: static; }
+/* ================================================================
+   RESPONSIVE — COMPACT DESKTOP  (≤ 1350px)
+================================================================ */
+@media (max-width: 1350px) {
+  .layout { grid-template-columns: 260px 1fr 240px; }
   .panel-trading { display: none; }
   .ibkr-section { display: block; }
+  .header-greeting { font-size: 14px; }
 }
-@media (max-width: 900px) {
-  .layout { grid-template-columns: 1fr; overflow-y: auto; height: auto; position: static; }
-  .panel { border-right: none; border-bottom: 1px solid var(--border); height: auto; max-height: 50vh; }
-  .panel-side { max-height: none; height: auto; }
-  .side-section { max-height: 40vh; }
-  .panel-trading { display: flex; max-height: 50vh; }
-  .ibkr-tbl { font-size: 12px; }
-  .ibkr-tbl thead th, .ibkr-tbl-month td { padding: 8px; }
+
+/* ================================================================
+   RESPONSIVE — TABLET PAYSAGE  (≤ 1024px)
+================================================================ */
+@media (max-width: 1024px) {
+  .layout { grid-template-columns: 230px 1fr 220px; }
+  .panel-header { padding: 12px 12px 10px; }
+  .panel-header h2 { font-size: 13px; }
+  .summary-chips { display: none; }
+  .header-greeting { display: none; }
+  .header { padding: 10px 16px; height: 56px; }
+  .layout { height: calc(100vh - 56px); top: 56px; }
 }
+
+/* ================================================================
+   RESPONSIVE — TABLET PORTRAIT  (≤ 820px)
+================================================================ */
+@media (max-width: 820px) {
+  :root { --header-h: 56px; }
+
+  /* Header compact */
+  .header { padding: 10px 14px; height: 56px; gap: 8px; }
+  .header-time { font-size: 18px; }
+  .header-date { font-size: 11px; }
+  .header-greeting { display: none; }
+  .summary-chips { display: none; }
+  .tg-btn span { display: none; }
+  .tg-btn { padding: 6px 8px; }
+
+  /* Layout 2 colonnes : agenda + tâches */
+  .layout {
+    grid-template-columns: 200px 1fr;
+    height: calc(100vh - 56px);
+    top: 56px;
+  }
+  .panel-side    { display: none; }
+  .panel-trading { display: none; }
+
+  /* Mini-calendar plus compact */
+  .cal-grid { gap: 2px; }
+  .cal-cell { font-size: 11px; padding: 3px 0; }
+
+  /* Modals plein-écran */
+  .modal { width: 96vw; margin: 0 auto; }
+}
+
+/* ================================================================
+   RESPONSIVE — MOBILE  (≤ 600px)
+================================================================ */
+@media (max-width: 600px) {
+  /* Header minimaliste */
+  .header { padding: 8px 12px; height: 52px; }
+  .header-left { flex-direction: row; align-items: center; gap: 8px; }
+  .header-date { display: none; }
+  .header-time { font-size: 16px; }
+  .tg-btn span { display: none; }
+  .tg-btn { padding: 5px 7px; gap: 0; }
+  .header-right { gap: 6px; }
+
+  /* Layout 1 colonne — chaque panel = plein écran */
+  .layout {
+    display: block;
+    height: calc(100dvh - 52px - 56px);  /* header + mobile-nav */
+    overflow: hidden;
+    position: sticky;
+    top: 52px;
+  }
+
+  /* Tous les panels cachés sauf le panel actif */
+  .panel {
+    display: none;
+    height: 100%;
+    max-height: none;
+    border-right: none;
+    border-bottom: none;
+  }
+  .panel.mobile-active { display: flex; }
+
+  /* Panel side visible en mode mobile (activé par la nav) */
+  .panel-side {
+    display: none;
+    height: 100%;
+    overflow: hidden;
+  }
+  .panel-side.mobile-active { display: flex; }
+  .panel-trading {
+    display: none;
+    height: 100%;
+    overflow: hidden;
+  }
+  .panel-trading.mobile-active { display: flex; }
+
+  /* Modals en bottom sheet */
+  .modal-overlay { align-items: flex-end; padding: 0; }
+  .modal {
+    width: 100vw;
+    max-width: 100vw;
+    border-radius: var(--radius) var(--radius) 0 0;
+    max-height: 90dvh;
+    overflow-y: auto;
+    animation: sheetUp 0.22s ease;
+  }
+  @keyframes sheetUp {
+    from { transform: translateY(100%); }
+    to   { transform: translateY(0); }
+  }
+
+  /* Panel-header padding réduit */
+  .panel-header { padding: 10px 12px 8px; }
+  .panel-header h2 { font-size: 13px; }
+
+  /* Agenda : mini-cal plus compact */
+  .mini-calendar { padding: 6px 8px; }
+  .cal-grid { gap: 1px; }
+  .cal-cell { font-size: 10px; padding: 2px 0; }
+  .cal-dayname { font-size: 9px; padding: 2px 0; }
+
+  /* Tasks : padding réduit */
+  .task-card { padding: 9px 10px; }
+  .task-title { font-size: 13px; }
+
+  /* Navigation mobile */
+  .mobile-nav { display: flex; }
+}
+
+/* ================================================================
+   RESPONSIVE — PETITS MOBILES  (≤ 380px)
+================================================================ */
+@media (max-width: 380px) {
+  .mobile-nav-item span { display: none; }
+  .mobile-nav { gap: 0; }
+  .mobile-nav-item { font-size: 18px; }
+  .header-time { font-size: 14px; }
+}
+
+/* ================================================================
+   BOTTOM NAV MOBILE  (cachée par défaut, visible ≤ 600px)
+================================================================ */
+.mobile-nav {
+  display: none;
+  position: fixed;
+  bottom: 0; left: 0; right: 0;
+  height: 56px;
+  background: var(--bg-panel);
+  border-top: 1px solid var(--border);
+  z-index: 200;
+  align-items: stretch;
+  backdrop-filter: blur(12px);
+}
+
+.mobile-nav-item {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 3px;
+  background: none;
+  border: none;
+  color: var(--text-muted);
+  cursor: pointer;
+  font-size: 10px;
+  font-weight: 500;
+  transition: color var(--transition);
+  padding: 6px 4px;
+  position: relative;
+}
+
+.mobile-nav-item .nav-icon { font-size: 18px; line-height: 1; }
+.mobile-nav-item span { font-size: 10px; line-height: 1; }
+
+.mobile-nav-item.active {
+  color: var(--accent);
+}
+.mobile-nav-item.active::before {
+  content: '';
+  position: absolute;
+  top: 0; left: 20%; right: 20%;
+  height: 2px;
+  background: var(--accent);
+  border-radius: 0 0 2px 2px;
+}
+.mobile-nav-item:active { opacity: .7; }
