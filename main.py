@@ -820,12 +820,14 @@ def _tc_fetch_events() -> list:
         raw = raw.strip()
         # Déjà ISO avec timezone → convertir en UTC
         if "T" in raw:
-            s = raw[:19]
-            try:
-                dt = datetime.strptime(s, "%Y-%m-%dT%H:%M:%S").replace(tzinfo=_ET)
-                return dt.astimezone(_UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
-            except ValueError:
-                return s
+            s = raw.rstrip("Z")[:19]
+            for fmt in ("%Y-%m-%dT%H:%M:%S", "%Y-%m-%dT%H:%M"):
+                try:
+                    dt = datetime.strptime(s, fmt).replace(tzinfo=_ET)
+                    return dt.astimezone(_UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
+                except ValueError:
+                    pass
+            return s
         # Heure US 12h ou 24h
         for fmt in ("%Y-%m-%d %I:%M %p", "%Y-%m-%d %I:%M%p",
                     "%Y-%m-%d %H:%M:%S", "%Y-%m-%d %H:%M"):
