@@ -38,7 +38,7 @@ updateClock();
 // ---------------------------------------------------------------------------
 // Tabs
 // ---------------------------------------------------------------------------
-const TABS = ['board','calendar','ibkr','projects','memories','docs','team','office','agents'];
+const TABS = ['board','calendar','ibkr','projects','memories','docs','team','office','agents','cron'];
 let currentTab = 'board';
 
 function switchTab(tab) {
@@ -55,6 +55,7 @@ function switchTab(tab) {
   if (tab === 'team')   { syncOcTeam(true); }   // sync silencieux + loadTeam inclus
   if (tab === 'office') { if (!allMembers.length) syncOcTeam(true); else renderOffice(); }
   if (tab === 'agents')    initAgentsTab();
+  if (tab === 'cron')      loadCron();
 }
 
 // ---------------------------------------------------------------------------
@@ -1228,6 +1229,46 @@ function renderLogLine(l) {
     ${role  ? `<span class="oc-log-role ${role}">${escHtml(role)}</span>` : ''}
     <span class="oc-log-content">${escHtml(String(content))}</span>
   </div>`;
+}
+
+// ---------------------------------------------------------------------------
+// CRON
+// ---------------------------------------------------------------------------
+async function loadCron() {
+  const el = $('cronContainer');
+  if (!el) return;
+  el.innerHTML = '<div class="cron-loading">Chargement…</div>';
+  try {
+    const jobs = await api('/mission-control/api/cron');
+    if (!jobs.length) {
+      el.innerHTML = '<div class="cron-empty">Aucune tâche cron trouvée (crontab vide).</div>';
+      return;
+    }
+    el.innerHTML = `
+      <table class="cron-table">
+        <thead>
+          <tr>
+            <th>Fréquence</th>
+            <th>Schedule</th>
+            <th>Commande</th>
+            <th></th>
+          </tr>
+        </thead>
+        <tbody>
+          ${jobs.map(j => `
+            <tr class="cron-row">
+              <td class="cron-human">${escHtml(j.human || j.schedule)}</td>
+              <td class="cron-schedule"><code>${escHtml(j.schedule)}</code></td>
+              <td class="cron-cmd"><code>${escHtml(j.command)}</code></td>
+              <td><button class="cron-copy" onclick="navigator.clipboard.writeText(${JSON.stringify(j.raw)})" title="Copier">⧉</button></td>
+            </tr>
+          `).join('')}
+        </tbody>
+      </table>
+    `;
+  } catch(_) {
+    el.innerHTML = '<div class="cron-empty" style="color:var(--neg)">Erreur de lecture crontab.</div>';
+  }
 }
 
 // ── Toast helper (si pas déjà défini) ────────────────────────────────────────

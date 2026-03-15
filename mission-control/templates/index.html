@@ -38,6 +38,7 @@
     <button class="mc-tab"        id="tab-team"     onclick="switchTab('team')">Team</button>
     <button class="mc-tab"        id="tab-office"   onclick="switchTab('office')">Office</button>
     <button class="mc-tab oc-tab" id="tab-agents"   onclick="switchTab('agents')">⚡ Agents</button>
+    <button class="mc-tab"        id="tab-cron"     onclick="switchTab('cron')">⏱ Crons</button>
   </nav>
 
   <!-- ===== BOARD ===== -->
@@ -214,6 +215,15 @@
       </div>
     </div>
   </div>
+
+  <!-- ===== CRON ===== -->
+  <section id="section-cron" class="mc-section hidden">
+    <div class="section-toolbar">
+      <h2>Tâches Cron</h2>
+      <button class="btn-secondary" onclick="loadCron()">↻ Rafraîchir</button>
+    </div>
+    <div id="cronContainer"></div>
+  </section>
 
   <!-- ===== MODALS ===== -->
 
