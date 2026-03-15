@@ -805,12 +805,28 @@ def _tc_fetch_events() -> list:
     resp.raise_for_status()
     raw = resp.json()
 
+    def _norm_dt(raw: str, eod: bool = False) -> str:
+        """Normalise les heures US (ex: '2026-03-15 1:30 pm') en ISO 8601."""
+        if not raw:
+            return raw
+        raw = raw.strip()
+        if "T" in raw:
+            return raw[:19]
+        for fmt in ("%Y-%m-%d %I:%M %p", "%Y-%m-%d %I:%M%p",
+                    "%Y-%m-%d %H:%M:%S", "%Y-%m-%d %H:%M"):
+            try:
+                return datetime.strptime(raw, fmt).strftime("%Y-%m-%dT%H:%M:%S")
+            except ValueError:
+                pass
+        # date seule
+        return raw + ("T23:59:59" if eod else "T00:00:00") if raw else raw
+
     events = []
     for item in raw.get("events", []):
         start_raw = item.get("start", "")
         end_raw   = item.get("end", "")
-        start_dt  = start_raw if "T" in start_raw else (start_raw + "T00:00:00") if start_raw else ""
-        end_dt    = end_raw   if "T" in end_raw   else (end_raw   + "T23:59:59") if end_raw   else start_dt
+        start_dt  = _norm_dt(start_raw)
+        end_dt    = _norm_dt(end_raw, eod=True) if end_raw else start_dt
         events.append({
             "id":             "tc_" + str(item.get("id", "")),
             "title":          item.get("title", ""),
