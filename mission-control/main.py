@@ -11,6 +11,8 @@ from contextlib import asynccontextmanager
 
 MEMORIES_PATH  = os.getenv("MEMORIES_PATH", "/root/memories.md")
 OBSIDIAN_VAULT = os.getenv("OBSIDIAN_VAULT", "")
+
+from twilio_voice import router as twilio_router
 DB_PATH        = Path(__file__).parent / "mission_control.db"
 OPENCLAW_URL   = os.getenv("OPENCLAW_URL", "http://localhost:8000")
 OPENCLAW_TOKEN = os.getenv("OPENCLAW_TOKEN", "")
@@ -112,6 +114,7 @@ app = FastAPI(lifespan=lifespan)
 BASE = Path(__file__).parent
 app.mount("/static", StaticFiles(directory=str(BASE / "static")), name="static")
 templates = Jinja2Templates(directory=str(BASE / "templates"))
+app.include_router(twilio_router)
 
 # ---------------------------------------------------------------------------
 # SSE broadcast
