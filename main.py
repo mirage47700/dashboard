@@ -652,7 +652,19 @@ async def auth_google_callback(request: Request, code: str, state: str = ""):
 
 @app.get("/api/google/status")
 def google_status():
-    return {"connected": GOOGLE_TOKEN_PATH.exists()}
+    creds = get_google_credentials()
+    if creds is None:
+        return {"connected": False}
+    # Si expiré, tenter un refresh silencieux
+    if creds.expired and creds.refresh_token:
+        try:
+            from google.auth.transport.requests import Request as GoogleRequest
+            creds.refresh(GoogleRequest())
+            _persist_credentials(creds)
+        except Exception as e:
+            print(f"[Google] Refresh silencieux échoué: {e}")
+            return {"connected": False, "error": "token_expired"}
+    return {"connected": True}
 
 
 @app.get("/api/events/google")
@@ -702,7 +714,9 @@ def get_google_events(start: Optional[str] = None, end: Optional[str] = None):
             })
         return events
     except Exception as e:
+        import traceback
         print(f"[Google Calendar] Erreur: {e}")
+        traceback.print_exc()
         return []
 
 

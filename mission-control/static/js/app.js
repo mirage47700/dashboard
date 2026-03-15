@@ -244,9 +244,13 @@ async function loadCalendar() {
   if (btn) {
     if (status.connected) {
       btn.classList.add('gcal-connected');
+      btn.removeAttribute('href');
+      btn.style.cursor = 'default';
       if (label) label.textContent = 'Connecté';
     } else {
       btn.classList.remove('gcal-connected');
+      btn.setAttribute('href', '/auth/google');
+      btn.style.cursor = 'pointer';
       if (label) label.textContent = 'Connecter';
     }
   }
