@@ -805,6 +805,10 @@ def _tc_fetch_events() -> list:
     resp.raise_for_status()
     raw = resp.json()
 
+    # DEBUG: log raw format des 3 premiers events
+    for _dbg in raw.get("events", [])[:3]:
+        print(f"[TC_DEBUG] start={_dbg.get('start')!r}  end={_dbg.get('end')!r}  title={_dbg.get('title','')[:30]!r}")
+
     from zoneinfo import ZoneInfo
     _ET  = ZoneInfo("America/New_York")
     _UTC = ZoneInfo("UTC")
