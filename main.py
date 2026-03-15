@@ -805,20 +805,32 @@ def _tc_fetch_events() -> list:
     resp.raise_for_status()
     raw = resp.json()
 
+    from zoneinfo import ZoneInfo
+    _ET  = ZoneInfo("America/New_York")
+    _UTC = ZoneInfo("UTC")
+
     def _norm_dt(raw: str, eod: bool = False) -> str:
-        """Normalise les heures US (ex: '2026-03-15 1:30 pm') en ISO 8601."""
+        """Normalise les heures ET (ex: '2026-03-15 1:30 pm') en UTC ISO 8601."""
         if not raw:
             return raw
         raw = raw.strip()
+        # Déjà ISO avec timezone → convertir en UTC
         if "T" in raw:
-            return raw[:19]
+            s = raw[:19]
+            try:
+                dt = datetime.strptime(s, "%Y-%m-%dT%H:%M:%S").replace(tzinfo=_ET)
+                return dt.astimezone(_UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
+            except ValueError:
+                return s
+        # Heure US 12h ou 24h
         for fmt in ("%Y-%m-%d %I:%M %p", "%Y-%m-%d %I:%M%p",
                     "%Y-%m-%d %H:%M:%S", "%Y-%m-%d %H:%M"):
             try:
-                return datetime.strptime(raw, fmt).strftime("%Y-%m-%dT%H:%M:%S")
+                dt = datetime.strptime(raw, fmt).replace(tzinfo=_ET)
+                return dt.astimezone(_UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
             except ValueError:
                 pass
-        # date seule
+        # Date seule (all-day) → pas de conversion TZ
         return raw + ("T23:59:59" if eod else "T00:00:00") if raw else raw
 
     events = []
@@ -854,7 +866,7 @@ def get_trading_events(start: Optional[str] = None, end: Optional[str] = None):
         if start:
             events = [e for e in events if e["start_datetime"] >= start]
         if end:
-            events = [e for e in events if e["start_datetime"] <= end + "T23:59:59"]
+            events = [e for e in events if e["start_datetime"][:10] <= end]
         return events
     except Exception as e:
         import traceback
