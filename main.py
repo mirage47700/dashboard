@@ -1947,11 +1947,28 @@ def _boomtech_fetch_calendar(token: str) -> list:
                 cat_names.append(_BOOMTECH_CATEGORIES.get(c, f"Unknown({c})"))
         desc_html = ev.get("desc", "") or ""
         desc_plain = _re.sub(r"<[^>]+>", "", desc_html).strip()
+
+        def _normalize_dt(raw: str) -> str:
+            """Convertit les formats US (ex: '2026-03-15 1:30 pm') en ISO 8601."""
+            if not raw:
+                return raw
+            raw = raw.strip()
+            if "T" in raw:
+                return raw[:19]  # déjà ISO
+            # Essai format "YYYY-MM-DD h:mm am/pm"
+            for fmt in ("%Y-%m-%d %I:%M %p", "%Y-%m-%d %I:%M%p",
+                        "%Y-%m-%d %H:%M:%S", "%Y-%m-%d %H:%M"):
+                try:
+                    return datetime.strptime(raw, fmt).strftime("%Y-%m-%dT%H:%M:%S")
+                except ValueError:
+                    pass
+            return raw  # date seule ou format inconnu — laisser tel quel
+
         parsed.append({
             "event_id": str(ev.get("id", "")),
             "title": ev.get("title", ""),
-            "start_date": ev.get("start", ""),
-            "end_date": ev.get("end", "") or "",
+            "start_date": _normalize_dt(ev.get("start", "")),
+            "end_date": _normalize_dt(ev.get("end", "") or ""),
             "all_day": 1 if ev.get("all_day") else 0,
             "timezone": ev.get("time_zone", "America/New_York") or "America/New_York",
             "category": ", ".join(cat_names),
