@@ -229,11 +229,12 @@ let calYear  = new Date().getFullYear();
 let calMonth = new Date().getMonth();
 
 async function loadCalendar() {
-  const [localEvents, googleEvents] = await Promise.all([
+  const [localEvents, googleEvents, tradingEvents] = await Promise.all([
     api('/api/events').catch(() => []),
     api('/api/events/google').catch(() => []),
+    api('/api/events/trading').catch(() => []),
   ]);
-  allEvents = [...localEvents, ...googleEvents].sort(
+  allEvents = [...localEvents, ...googleEvents, ...tradingEvents].sort(
     (a, b) => new Date(a.start_datetime) - new Date(b.start_datetime)
   );
   // Google Calendar status button
@@ -270,7 +271,7 @@ function renderAgendaDay() {
     return;
   }
   timeline.innerHTML = dayEvents.map(e => {
-    const deleteBtn = e.source === 'google'
+    const deleteBtn = (e.source === 'google' || e.source === 'trading')
       ? '' : `<button class="event-delete" onclick="deleteMcEvent(${e.id})">✕</button>`;
     return `
     <div class="agenda-event color-${e.color || 'blue'}">
@@ -288,8 +289,9 @@ function renderMiniCalendar() {
   const container = $('miniCalendar');
   if (!container) return;
   const todayStr = mcToday();
-  const localEventDays  = new Set(allEvents.filter(e => e.source !== 'google').map(e => e.start_datetime.split('T')[0]));
-  const googleEventDays = new Set(allEvents.filter(e => e.source === 'google').map(e => e.start_datetime.split('T')[0]));
+  const localEventDays   = new Set(allEvents.filter(e => e.source !== 'google' && e.source !== 'trading').map(e => e.start_datetime.split('T')[0]));
+  const googleEventDays  = new Set(allEvents.filter(e => e.source === 'google').map(e => e.start_datetime.split('T')[0]));
+  const tradingEventDays = new Set(allEvents.filter(e => e.source === 'trading').map(e => e.start_datetime.split('T')[0]));
 
   const firstDay = new Date(calYear, calMonth, 1);
   const lastDay  = new Date(calYear, calMonth + 1, 0);
@@ -318,8 +320,9 @@ function renderMiniCalendar() {
     const isSelected = dateStr === selectedDate && dateStr !== todayStr;
     const hasLocal   = localEventDays.has(dateStr);
     const hasGoogle  = googleEventDays.has(dateStr);
+    const hasTrading = tradingEventDays.has(dateStr);
     const cls = ['cal-day', isToday ? 'today' : '', isSelected ? 'selected' : '',
-      hasLocal ? 'has-event' : '', hasGoogle ? 'has-google-event' : ''].filter(Boolean).join(' ');
+      hasLocal ? 'has-event' : '', hasGoogle ? 'has-google-event' : '', hasTrading ? 'has-trading-event' : ''].filter(Boolean).join(' ');
     html += `<div class="${cls}" onclick="calDayClick('${dateStr}')">${d}</div>`;
   }
   const totalCells = startDow + lastDay.getDate();
