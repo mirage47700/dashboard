@@ -38,6 +38,7 @@
     <button class="mc-tab"        id="tab-docs"     onclick="switchTab('docs')">Docs</button>
     <button class="mc-tab"        id="tab-team"     onclick="switchTab('team')">Team</button>
     <button class="mc-tab"        id="tab-office"   onclick="switchTab('office')">Office</button>
+    <button class="mc-tab oc-tab" id="tab-agents"   onclick="switchTab('agents')">⚡ Agents</button>
   </nav>
 
   <!-- ===== BOARD ===== -->
@@ -146,6 +147,10 @@
   <section id="section-team" class="mc-section hidden">
     <div class="section-toolbar">
       <h2>Team</h2>
+      <button class="btn-oc-sync" id="ocSyncBtn" onclick="syncOcTeam()" title="Importer les agents depuis OpenClaw">
+        <span id="ocSyncIcon">⚡</span> Sync OpenClaw
+      </button>
+      <span class="oc-sync-status" id="ocSyncStatus"></span>
       <button class="btn-primary" onclick="openTeamModal()">+ Agent</button>
     </div>
     <div class="team-org" id="teamOrg"></div>
@@ -155,6 +160,7 @@
   <section id="section-office" class="mc-section hidden">
     <div class="section-toolbar">
       <h2>OpenClaw HQ</h2>
+      <button class="btn-oc-sync" onclick="syncOcTeam()" title="Sync agents depuis OpenClaw">⚡ Sync</button>
       <div class="office-legend">
         <span class="leg working">Working</span>
         <span class="leg idle">Idle</span>
@@ -169,6 +175,46 @@
       </div>
     </div>
   </section>
+
+  <!-- ===== AGENTS (OpenClaw) ===== -->
+  <section id="section-agents" class="mc-section hidden">
+
+    <!-- Toolbar -->
+    <div class="section-toolbar">
+      <h2>Agents OpenClaw</h2>
+      <div class="oc-status-badge" id="ocStatusBadge">
+        <span class="oc-dot" id="ocDot"></span>
+        <span id="ocStatusLabel">Vérification…</span>
+        <span class="oc-url" id="ocUrl"></span>
+      </div>
+      <button class="btn-primary" onclick="loadAgents()" title="Rafraîchir">↻ Rafraîchir</button>
+    </div>
+
+    <!-- Grid d'agents -->
+    <div class="oc-grid" id="ocAgentGrid">
+      <div class="oc-empty" id="ocEmpty">Chargement des agents…</div>
+    </div>
+
+  </section>
+
+  <!-- Modal Logs agent -->
+  <div class="modal-overlay hidden" id="ocLogsModal">
+    <div class="modal oc-logs-modal">
+      <div class="modal-header">
+        <h3 id="ocLogsTitle">Logs — </h3>
+        <button class="btn-close" onclick="closeOcLogs()">✕</button>
+      </div>
+      <div class="oc-logs-toolbar">
+        <button class="btn-sm" onclick="refreshOcLogs()">↻ Actualiser</button>
+        <label class="oc-autoscroll-label">
+          <input type="checkbox" id="ocAutoScroll" checked /> Auto-scroll
+        </label>
+      </div>
+      <div class="oc-logs-body" id="ocLogsBody">
+        <div class="oc-logs-placeholder">Sélectionne un agent pour voir ses logs.</div>
+      </div>
+    </div>
+  </div>
 
   <!-- ===== MODALS ===== -->
 

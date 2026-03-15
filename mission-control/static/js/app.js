@@ -38,7 +38,7 @@ updateClock();
 // ---------------------------------------------------------------------------
 // Tabs
 // ---------------------------------------------------------------------------
-const TABS = ['board','calendar','ibkr','projects','memories','docs','team','office'];
+const TABS = ['board','calendar','ibkr','projects','memories','docs','team','office','agents'];
 let currentTab = 'board';
 
 function switchTab(tab) {
@@ -52,8 +52,9 @@ function switchTab(tab) {
   if (tab === 'projects')  loadProjects();
   if (tab === 'memories')  loadMemories();
   if (tab === 'docs')      loadDocs();
-  if (tab === 'team')      loadTeam();
-  if (tab === 'office')    renderOffice();
+  if (tab === 'team')   { syncOcTeam(true); }   // sync silencieux + loadTeam inclus
+  if (tab === 'office') { if (!allMembers.length) syncOcTeam(true); else renderOffice(); }
+  if (tab === 'agents')    initAgentsTab();
 }
 
 // ---------------------------------------------------------------------------
@@ -72,6 +73,18 @@ function initSSE() {
 function handleEvent(data) {
   if (data.type === 'heartbeat') {
     updateHeartbeatUI(data);
+
+    // Mise à jour en temps réel de allMembers (sans rechargement réseau)
+    const member = allMembers.find(m => m.name === data.agent);
+    if (member) {
+      member.status       = data.status;
+      member.current_task = data.current_task || null;
+    } else {
+      // Nouvel agent inconnu → recharge depuis la DB
+      loadTeam();
+    }
+
+    if (currentTab === 'team')   renderTeam();
     if (currentTab === 'office') renderOffice();
   }
   if (data.type === 'task_created' || data.type === 'task_updated' || data.type === 'task_deleted') {
@@ -599,6 +612,49 @@ function renderDocs(docs) {
 // ---------------------------------------------------------------------------
 let allMembers = [];
 
+// ---------------------------------------------------------------------------
+// SYNC OPENCLAW → TEAM
+// ---------------------------------------------------------------------------
+let _ocSyncPending = false;
+
+async function syncOcTeam(silent = false) {
+  if (_ocSyncPending) return;
+  _ocSyncPending = true;
+
+  const btn    = $('ocSyncBtn');
+  const status = $('ocSyncStatus');
+  const icon   = $('ocSyncIcon');
+
+  if (btn)    btn.disabled = true;
+  if (icon)   icon.textContent = '↻';
+  if (status) { status.className = 'oc-sync-status'; status.textContent = 'Synchronisation…'; }
+
+  try {
+    const res = await api('/mission-control/api/openclaw/sync-team', 'POST');
+    if (!silent && status) {
+      const msg = res.added > 0
+        ? `+${res.added} agent${res.added > 1 ? 's' : ''} importé${res.added > 1 ? 's' : ''}`
+        : `${res.updated} mis à jour`;
+      status.className = 'oc-sync-status ok';
+      status.textContent = msg;
+      setTimeout(() => { if (status) status.textContent = ''; }, 4000);
+    }
+    // Recharge le team après sync
+    await loadTeam();
+    if (currentTab === 'office') renderOffice();
+  } catch(e) {
+    if (status) {
+      status.className = 'oc-sync-status err';
+      status.textContent = 'OpenClaw inaccessible';
+      setTimeout(() => { if (status) status.textContent = ''; }, 5000);
+    }
+  } finally {
+    _ocSyncPending = false;
+    if (btn)  btn.disabled = false;
+    if (icon) icon.textContent = '⚡';
+  }
+}
+
 async function loadTeam() {
   try { allMembers = await api('/mission-control/api/team'); } catch(_) { allMembers = []; }
   renderTeam();
@@ -612,6 +668,7 @@ function renderTeam() {
 
   const cardHtml = (m, big=false) => `
     <div class="team-card ${big ? 'main-agent' : ''}" onclick="openTeamModal(${m.id})">
+      ${m.source === 'openclaw' ? '<span class="oc-badge">OpenClaw</span>' : ''}
       <div class="team-status-dot ${m.status}"></div>
       <div class="team-avatar" style="background:${m.color || '#4f8ef7'}">${escHtml(m.emoji || m.name[0])}</div>
       <div class="team-name">${escHtml(m.name)}</div>
@@ -925,6 +982,244 @@ async function init() {
   pollHeartbeat();
   setInterval(pollHeartbeat, 30000);
   initSSE();
+
+  // Handle ?tab=xxx redirect (e.g. after Google OAuth callback)
+  const urlTab = new URLSearchParams(location.search).get('tab');
+  if (urlTab && TABS.includes(urlTab)) {
+    switchTab(urlTab);
+    history.replaceState(null, '', location.pathname);
+  }
 }
 
 init();
+
+// ===========================================================================
+// OPENCLAW AGENTS TAB
+// ===========================================================================
+
+let _ocAgentsLoaded = false;
+let _ocLogsAgentId  = null;
+let _ocLogsTimer    = null;
+
+// ── Init ────────────────────────────────────────────────────────────────────
+async function initAgentsTab() {
+  if (!_ocAgentsLoaded) {
+    _ocAgentsLoaded = true;
+    await checkOcStatus();
+    await loadAgents();
+  }
+}
+
+// ── Status badge ─────────────────────────────────────────────────────────────
+async function checkOcStatus() {
+  const dot    = $('ocDot');
+  const label  = $('ocStatusLabel');
+  const urlEl  = $('ocUrl');
+  try {
+    const data = await api('/api/openclaw/status');
+    if (data.reachable) {
+      dot.className    = 'oc-dot online';
+      label.textContent = 'En ligne';
+    } else {
+      dot.className    = 'oc-dot offline';
+      label.textContent = 'Hors ligne';
+    }
+    urlEl.textContent = data.url || '';
+  } catch(e) {
+    dot.className     = 'oc-dot offline';
+    label.textContent  = 'Inaccessible';
+    urlEl.textContent  = '';
+  }
+}
+
+// ── Load agents ──────────────────────────────────────────────────────────────
+async function loadAgents() {
+  const grid  = $('ocAgentGrid');
+  const empty = $('ocEmpty');
+  if (!grid) return;
+
+  // Refresh status en même temps
+  checkOcStatus();
+
+  // Spinner
+  grid.innerHTML = '<div class="oc-empty" id="ocEmpty">Chargement…</div>';
+
+  let agents = [];
+  try {
+    const data = await api('/api/openclaw/agents');
+    agents = data.agents || [];
+  } catch(e) {
+    const msg = e.message || 'Erreur inconnue';
+    grid.innerHTML = `<div class="oc-empty">
+      ⚠ Impossible de contacter OpenClaw.<br>
+      <small style="color:var(--text-muted)">${escHtml(msg)}</small><br><br>
+      <span style="font-size:12px;color:var(--text-muted)">
+        Vérifie que OpenClaw tourne sur <strong>localhost:8000</strong>
+        ou configure la variable <code>OPENCLAW_URL</code>.
+      </span>
+    </div>`;
+    return;
+  }
+
+  if (!agents.length) {
+    grid.innerHTML = '<div class="oc-empty">Aucun agent trouvé sur OpenClaw.</div>';
+    return;
+  }
+
+  grid.innerHTML = agents.map(a => renderAgentCard(a)).join('');
+}
+
+// ── Render card ──────────────────────────────────────────────────────────────
+function renderAgentCard(a) {
+  const id     = a.id || a.name || a.agent_id || a.session_id || '?';
+  const name   = a.name || a.title || a.agent_name || id;
+  const status = (a.status || a.state || 'unknown').toLowerCase();
+  const model  = a.model || a.llm || '';
+  const tasks  = a.tasks_done ?? a.completed ?? '';
+  const uptime = a.uptime || a.started_at || a.created_at || '';
+  const emoji  = _agentEmoji(name);
+
+  const running = ['running','active','working','started','online'].includes(status);
+  const stopped = ['stopped','inactive','offline','idle','paused'].includes(status);
+
+  return `
+  <div class="oc-card status-${_statusClass(status)}" id="oc-card-${escHtml(id)}">
+    <div class="oc-card-head">
+      <div class="oc-avatar">${emoji}</div>
+      <div class="oc-card-info">
+        <div class="oc-card-name" title="${escHtml(name)}">${escHtml(name)}</div>
+        <div class="oc-card-id">${escHtml(id)}</div>
+      </div>
+      <span class="oc-status-chip ${_statusClass(status)}">${escHtml(status)}</span>
+    </div>
+    ${model || tasks !== '' || uptime ? `
+    <div class="oc-card-meta">
+      ${model   ? `<div class="oc-meta-row"><span>Modèle</span><span class="oc-meta-val">${escHtml(model)}</span></div>` : ''}
+      ${tasks !== '' ? `<div class="oc-meta-row"><span>Tâches</span><span class="oc-meta-val">${escHtml(String(tasks))}</span></div>` : ''}
+      ${uptime  ? `<div class="oc-meta-row"><span>Démarré</span><span class="oc-meta-val">${fmtRelative(uptime)}</span></div>` : ''}
+    </div>` : ''}
+    <div class="oc-card-actions">
+      ${!running ? `<button class="oc-btn start" onclick="ocStartAgent('${escHtml(id)}')">▶ Start</button>` : ''}
+      ${running  ? `<button class="oc-btn stop"  onclick="ocStopAgent('${escHtml(id)}')">■ Stop</button>`  : ''}
+      <button class="oc-btn logs" onclick="openOcLogs('${escHtml(id)}', '${escHtml(name)}')">📋 Logs</button>
+    </div>
+  </div>`;
+}
+
+function _agentEmoji(name) {
+  const n = (name || '').toLowerCase();
+  if (n.includes('trade') || n.includes('market')) return '📈';
+  if (n.includes('mail')  || n.includes('email'))  return '✉️';
+  if (n.includes('scrape') || n.includes('web'))   return '🕷️';
+  if (n.includes('task')  || n.includes('todo'))   return '📋';
+  if (n.includes('data')  || n.includes('db'))     return '🗄️';
+  if (n.includes('main')  || n.includes('master')) return '🎛️';
+  return '🤖';
+}
+
+function _statusClass(s) {
+  if (['running','active','working','started','online'].includes(s)) return 'running';
+  if (['stopped','inactive','offline'].includes(s))                  return 'stopped';
+  if (['idle','paused','waiting'].includes(s))                        return 'idle';
+  if (['error','failed','crash'].includes(s))                         return 'error';
+  return 'unknown';
+}
+
+// ── Start / Stop ──────────────────────────────────────────────────────────────
+async function ocStartAgent(id) {
+  const card = $(`oc-card-${id}`);
+  if (card) { const btns = card.querySelectorAll('.oc-btn'); btns.forEach(b => b.disabled = true); }
+  try {
+    await api(`/api/openclaw/agents/${encodeURIComponent(id)}/start`, 'POST');
+    showToast(`Agent "${id}" démarré`, 'success');
+    setTimeout(loadAgents, 800);
+  } catch(e) {
+    showToast(`Erreur start: ${e.message}`, 'error');
+    if (card) { const btns = card.querySelectorAll('.oc-btn'); btns.forEach(b => b.disabled = false); }
+  }
+}
+
+async function ocStopAgent(id) {
+  const card = $(`oc-card-${id}`);
+  if (card) { const btns = card.querySelectorAll('.oc-btn'); btns.forEach(b => b.disabled = true); }
+  try {
+    await api(`/api/openclaw/agents/${encodeURIComponent(id)}/stop`, 'POST');
+    showToast(`Agent "${id}" arrêté`, 'success');
+    setTimeout(loadAgents, 800);
+  } catch(e) {
+    showToast(`Erreur stop: ${e.message}`, 'error');
+    if (card) { const btns = card.querySelectorAll('.oc-btn'); btns.forEach(b => b.disabled = false); }
+  }
+}
+
+// ── Logs modal ────────────────────────────────────────────────────────────────
+async function openOcLogs(agentId, agentName) {
+  _ocLogsAgentId = agentId;
+  $('ocLogsTitle').textContent = `Logs — ${agentName}`;
+  $('ocLogsModal').classList.remove('hidden');
+  await refreshOcLogs();
+  // Auto-refresh toutes les 5s
+  clearInterval(_ocLogsTimer);
+  _ocLogsTimer = setInterval(() => {
+    if (!$('ocLogsModal').classList.contains('hidden')) refreshOcLogs();
+  }, 5000);
+}
+
+function closeOcLogs() {
+  clearInterval(_ocLogsTimer);
+  $('ocLogsModal').classList.add('hidden');
+  _ocLogsAgentId = null;
+}
+
+async function refreshOcLogs() {
+  if (!_ocLogsAgentId) return;
+  const body = $('ocLogsBody');
+  try {
+    const data = await api(`/api/openclaw/agents/${encodeURIComponent(_ocLogsAgentId)}/logs`);
+    const logs = data.logs || [];
+    if (!logs.length) {
+      body.innerHTML = '<div class="oc-logs-placeholder">Aucun log disponible pour cet agent.</div>';
+      return;
+    }
+    body.innerHTML = logs.map(l => renderLogLine(l)).join('');
+    if ($('ocAutoScroll') && $('ocAutoScroll').checked) {
+      body.scrollTop = body.scrollHeight;
+    }
+  } catch(e) {
+    body.innerHTML = `<div class="oc-logs-placeholder">⚠ ${escHtml(e.message)}</div>`;
+  }
+}
+
+function renderLogLine(l) {
+  // Supporte plusieurs formats de log courants
+  if (typeof l === 'string') {
+    return `<div class="oc-log-line"><span class="oc-log-content oc-log-raw">${escHtml(l)}</span></div>`;
+  }
+  const ts      = l.timestamp || l.created_at || l.ts || '';
+  const role    = (l.role || l.type || l.level || l.source || '').toLowerCase();
+  const content = l.content || l.message || l.text || l.body || JSON.stringify(l);
+  const tsStr   = ts ? new Date(ts).toLocaleTimeString('fr-FR', {hour:'2-digit',minute:'2-digit',second:'2-digit'}) : '';
+  return `<div class="oc-log-line">
+    ${tsStr ? `<span class="oc-log-ts">${tsStr}</span>` : ''}
+    ${role  ? `<span class="oc-log-role ${role}">${escHtml(role)}</span>` : ''}
+    <span class="oc-log-content">${escHtml(String(content))}</span>
+  </div>`;
+}
+
+// ── Toast helper (si pas déjà défini) ────────────────────────────────────────
+if (typeof showToast === 'undefined') {
+  function showToast(msg, type = 'info') {
+    const c = document.getElementById('toastContainer') || document.body;
+    const t = document.createElement('div');
+    t.className = `toast toast-${type}`;
+    t.textContent = msg;
+    t.style.cssText = `
+      position:fixed;bottom:20px;right:20px;z-index:9999;
+      padding:10px 16px;border-radius:8px;font-size:13px;
+      background:${type==='success'?'#16a34a':type==='error'?'#dc2626':'#3b82f6'};
+      color:#fff;box-shadow:0 4px 12px rgba(0,0,0,.4);
+    `;
+    c.appendChild(t);
+    setTimeout(() => t.remove(), 3000);
+  }
+}

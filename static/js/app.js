@@ -3,6 +3,72 @@
 ================================================================ */
 
 // ---------------------------------------------------------------------------
+// MOBILE NAV
+// ---------------------------------------------------------------------------
+// el = sélecteur CSS, btn = ID du bouton de nav mobile
+const MOBILE_PANELS = {
+  agenda:  { el: '.panel-agenda',  btn: 'mnAgenda'  },
+  tasks:   { el: '.panel-tasks',   btn: 'mnTasks'   },
+  side:    { el: '.panel-side',    btn: 'mnSide'    },
+  trading: { el: '.panel-trading', btn: 'mnTrading' },
+};
+
+let _currentMobilePanel = 'agenda';
+
+function isMobile() {
+  return window.innerWidth <= 600;
+}
+
+function mobileSwitchPanel(name) {
+  if (!isMobile()) return;
+
+  // Désactive tous les panels et boutons
+  Object.values(MOBILE_PANELS).forEach(({ el, btn }) => {
+    const panel = document.querySelector(el);
+    const btnEl = document.getElementById(btn);
+    if (panel) panel.classList.remove('mobile-active');
+    if (btnEl) btnEl.classList.remove('active');
+  });
+
+  // Active le panel demandé
+  const target = MOBILE_PANELS[name];
+  if (target) {
+    const panel = document.querySelector(target.el);
+    const btnEl = document.getElementById(target.btn);
+    if (panel) panel.classList.add('mobile-active');
+    if (btnEl) btnEl.classList.add('active');
+  }
+
+  _currentMobilePanel = name;
+
+  // Charge les données si nécessaire
+  if (name === 'side')    loadUsage();
+  if (name === 'trading') loadTrading && loadTrading();
+}
+
+function initMobileNav() {
+  if (!isMobile()) return;
+  mobileSwitchPanel('agenda');
+}
+
+// Réinitialise au resize (ex: rotation écran)
+let _resizeTimer;
+window.addEventListener('resize', () => {
+  clearTimeout(_resizeTimer);
+  _resizeTimer = setTimeout(() => {
+    if (isMobile()) {
+      mobileSwitchPanel(_currentMobilePanel);
+    } else {
+      // Sur desktop : retire toutes les classes mobile-active
+      Object.values(MOBILE_PANELS).forEach(({ el }) => {
+        const panel = document.querySelector(el);
+        if (panel) panel.classList.remove('mobile-active');
+      });
+    }
+  }, 150);
+});
+
+// ---------------------------------------------------------------------------
 // State
 // ---------------------------------------------------------------------------
 let allTasks   = [];
@@ -942,43 +1008,6 @@ async function loadUsage() {
     const el = $('apiUsageList');
     let html = '';
 
-    // --- OpenRouter -------------------------------------------------------
-    if (data.openrouter?.connected) {
-      const used  = Number(data.openrouter.total_usage);
-      const total = Number(data.openrouter.total_credits);
-      const rem   = Number(data.openrouter.remaining);
-      const pct   = data.openrouter.pct_used;
-      const over  = rem < 0;
-      const warn  = pct >= 90;
-      const barW  = Math.min(pct, 100);
-      const dotCls = over ? 'err' : warn ? 'warn' : 'ok';
-      const rowCls = over ? 'api-row-err' : warn ? 'api-row-warn' : '';
-      const valStr = over
-        ? `-$${Math.abs(rem).toFixed(2)} dépassé`
-        : `$${rem.toFixed(2)} restants`;
-      html += `
-        <div class="api-row ${rowCls}">
-          <div class="api-row-head">
-            <span class="api-dot ${dotCls}"></span>
-            <span class="api-name">OpenRouter</span>
-            <span class="api-val">${valStr}</span>
-          </div>
-          <div class="api-bar-track">
-            <div class="api-bar-fill ${over ? 'fill-warn' : warn ? 'fill-warn' : ''}" style="width:${barW}%"></div>
-          </div>
-          <div class="api-sub">$${used.toFixed(2)} utilisés / $${total.toFixed(2)} total (${pct}%)</div>
-        </div>`;
-    } else {
-      html += `
-        <div class="api-row api-row-err">
-          <div class="api-row-head">
-            <span class="api-dot err"></span>
-            <span class="api-name">OpenRouter</span>
-            <span class="api-val">${data.openrouter?.missing_key ? 'Clé manquante' : 'Erreur'}</span>
-          </div>
-        </div>`;
-    }
-
     // --- Claude Pro -------------------------------------------------------
     html += `
       <a class="api-row api-row-link" href="https://claude.ai/settings/limits" target="_blank" rel="noopener">
@@ -1061,6 +1090,9 @@ async function init() {
   checkGoogleStatus();
   checkTelegramStatus();
   loadUsage();
+
+  // Mobile nav
+  initMobileNav();
 }
 
 // ---------------------------------------------------------------------------

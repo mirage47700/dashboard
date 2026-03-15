@@ -4,13 +4,15 @@ from fastapi.templating import Jinja2Templates
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 from typing import Optional
-import sqlite3, os, subprocess, json, asyncio, re
+import sqlite3, os, subprocess, json, asyncio, re, requests as _requests
 from datetime import datetime
 from pathlib import Path
 from contextlib import asynccontextmanager
 
-MEMORIES_PATH = os.getenv("MEMORIES_PATH", "/root/memories.md")
-DB_PATH       = Path(__file__).parent / "mission_control.db"
+MEMORIES_PATH  = os.getenv("MEMORIES_PATH", "/root/memories.md")
+DB_PATH        = Path(__file__).parent / "mission_control.db"
+OPENCLAW_URL   = os.getenv("OPENCLAW_URL", "http://localhost:8000")
+OPENCLAW_TOKEN = os.getenv("OPENCLAW_TOKEN", "")
 
 sse_clients: list[asyncio.Queue] = []
 
@@ -82,11 +84,18 @@ def init_db():
             timestamp TEXT DEFAULT (datetime('now'))
         );
     """)
+    # Migration : ajout des colonnes openclaw_id et source si elles n'existent pas
+    existing_cols = {row[1] for row in c.execute("PRAGMA table_info(team_members)").fetchall()}
+    if "openclaw_id" not in existing_cols:
+        c.execute("ALTER TABLE team_members ADD COLUMN openclaw_id TEXT")
+    if "source" not in existing_cols:
+        c.execute("ALTER TABLE team_members ADD COLUMN source TEXT DEFAULT 'manual'")
+
     if not c.execute("SELECT id FROM team_members").fetchone():
-        c.execute("""INSERT INTO team_members (name,role,agent_type,mission,emoji,color,status)
+        c.execute("""INSERT INTO team_members (name,role,agent_type,mission,emoji,color,status,source)
             VALUES ('OpenClaw','Main Agent','main',
                 'Orchestrate tasks, manage projects, maintain memories, coordinate sub-agents.',
-                'C','#4f8ef7','idle')""")
+                'C','#4f8ef7','idle','manual')""")
     c.commit()
     c.close()
 
@@ -366,6 +375,89 @@ def delete_member(mid: int):
     return {"ok": True}
 
 # ---------------------------------------------------------------------------
+# Sync OpenClaw agents → team_members
+# ---------------------------------------------------------------------------
+
+def _oc_status_to_team(status: str) -> str:
+    """Convertit le statut OpenClaw en statut team_members."""
+    s = (status or "").lower()
+    if s in ("running", "active", "working", "started", "online"):
+        return "working"
+    if s in ("idle", "paused", "waiting"):
+        return "idle"
+    return "offline"
+
+def _oc_agent_emoji(name: str) -> str:
+    n = (name or "").lower()
+    if any(k in n for k in ("trade", "market", "stock", "ibkr")): return "📈"
+    if any(k in n for k in ("mail", "email", "gmail")):            return "✉️"
+    if any(k in n for k in ("scrape", "web", "crawl")):            return "🕷️"
+    if any(k in n for k in ("task", "todo", "board")):             return "📋"
+    if any(k in n for k in ("data", "db", "base")):                return "🗄️"
+    if any(k in n for k in ("main", "master", "orche")):           return "🎛️"
+    if any(k in n for k in ("news", "rss", "feed")):               return "📰"
+    return "🤖"
+
+_OC_COLORS = ["#6366f1","#22c55e","#f59e0b","#3b82f6","#a855f7","#ec4899","#14b8a6","#f97316"]
+
+@app.post("/api/openclaw/sync-team")
+def openclaw_sync_team():
+    """Récupère les agents OpenClaw et les upsert dans team_members."""
+    # 1. Récupère les agents depuis OpenClaw
+    agents = []
+    candidates = ["/api/agents", "/agents", "/v1/agents", "/api/sessions", "/sessions"]
+    for path in candidates:
+        try:
+            r = _requests.get(f"{OPENCLAW_URL}{path}", headers=_oc_headers(), timeout=5)
+            if r.ok:
+                data = r.json()
+                if isinstance(data, list):
+                    agents = data; break
+                if isinstance(data, dict):
+                    for key in ("agents", "sessions", "items", "data", "results"):
+                        if key in data and isinstance(data[key], list):
+                            agents = data[key]; break
+                    if agents: break
+        except Exception:
+            pass
+
+    if not agents:
+        raise HTTPException(502, detail="Impossible de récupérer les agents depuis OpenClaw.")
+
+    c = get_db()
+    added = updated = 0
+
+    for i, a in enumerate(agents):
+        oc_id   = str(a.get("id") or a.get("agent_id") or a.get("session_id") or a.get("name") or f"oc-{i}")
+        name    = a.get("name") or a.get("title") or a.get("agent_name") or oc_id
+        role    = a.get("role") or a.get("type") or a.get("model") or "OpenClaw Agent"
+        status  = _oc_status_to_team(a.get("status") or a.get("state") or "idle")
+        task    = a.get("current_task") or a.get("task") or None
+        mission = a.get("description") or a.get("mission") or a.get("system_prompt", "")[:200] or ""
+        emoji   = a.get("emoji") or _oc_agent_emoji(name)
+        color   = _OC_COLORS[i % len(_OC_COLORS)]
+
+        existing = c.execute("SELECT id FROM team_members WHERE openclaw_id=?", (oc_id,)).fetchone()
+        if existing:
+            c.execute(
+                "UPDATE team_members SET name=?,role=?,status=?,current_task=?,mission=?,source='openclaw' WHERE openclaw_id=?",
+                (name, role, status, task, mission, oc_id)
+            )
+            updated += 1
+        else:
+            c.execute(
+                """INSERT INTO team_members
+                   (name,role,agent_type,mission,status,current_task,emoji,color,openclaw_id,source)
+                   VALUES (?,?,?,?,?,?,?,?,?,'openclaw')""",
+                (name, role, "sub", mission, status, task, emoji, color, oc_id)
+            )
+            added += 1
+
+    c.commit()
+    c.close()
+    return {"ok": True, "added": added, "updated": updated, "total": len(agents)}
+
+# ---------------------------------------------------------------------------
 # Memories
 # ---------------------------------------------------------------------------
 @app.get("/api/memories")
@@ -467,17 +559,33 @@ async def post_heartbeat(h: HeartbeatIn):
     c = get_db()
     c.execute("INSERT INTO heartbeats (agent,status,metadata) VALUES (?,?,?)",
               (h.agent, h.status, json.dumps(h.metadata)))
-    task_label = h.metadata.get("current_task")
-    agent_status = "working" if h.metadata.get("current_task") else "idle"
-    c.execute("UPDATE team_members SET status=?,current_task=? WHERE name=?",
-              (agent_status, task_label, h.agent))
+    task_label   = h.metadata.get("current_task")
+    agent_status = "working" if task_label else "idle"
+    role         = h.metadata.get("role", "OpenClaw Agent")
+
+    # Auto-enregistrement : crée la fiche si l'agent n'existe pas encore
+    existing = c.execute("SELECT id FROM team_members WHERE name=?", (h.agent,)).fetchone()
+    if existing:
+        c.execute("UPDATE team_members SET status=?,current_task=? WHERE name=?",
+                  (agent_status, task_label, h.agent))
+    else:
+        c.execute("""INSERT INTO team_members
+                     (name,role,agent_type,status,current_task,emoji,color,source)
+                     VALUES (?,?,'sub',?,?,'🤖','#6366f1','openclaw')""",
+                  (h.agent, role, agent_status, task_label))
+
     c.commit()
     pending = c.execute(
         "SELECT * FROM tasks WHERE status='todo' AND assigned_to=? ORDER BY created_at DESC LIMIT 10",
         (h.agent,)).fetchall()
     c.close()
-    await broadcast({"type": "heartbeat", "agent": h.agent, "status": h.status,
-                     "timestamp": datetime.now().isoformat()})
+    await broadcast({
+        "type":         "heartbeat",
+        "agent":        h.agent,
+        "status":       agent_status,
+        "current_task": task_label,
+        "timestamp":    datetime.now().isoformat(),
+    })
     return {"ok": True, "pending_tasks": [dict(r) for r in pending]}
 
 @app.get("/api/heartbeat")
@@ -512,3 +620,173 @@ async def sse_stream(request: Request):
 
     return StreamingResponse(generate(), media_type="text/event-stream",
                              headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
+
+# ---------------------------------------------------------------------------
+# OpenClaw proxy
+# ---------------------------------------------------------------------------
+
+def _oc_headers():
+    h = {"Content-Type": "application/json"}
+    if OPENCLAW_TOKEN:
+        h["Authorization"] = f"Bearer {OPENCLAW_TOKEN}"
+    return h
+
+def _oc_get(path: str, timeout: int = 5):
+    """GET vers l'instance OpenClaw."""
+    try:
+        r = _requests.get(f"{OPENCLAW_URL}{path}", headers=_oc_headers(), timeout=timeout)
+        r.raise_for_status()
+        return r.json()
+    except _requests.exceptions.ConnectionError:
+        raise HTTPException(502, detail="OpenClaw inaccessible (connexion refusée)")
+    except _requests.exceptions.Timeout:
+        raise HTTPException(504, detail="OpenClaw timeout")
+    except _requests.exceptions.HTTPError as e:
+        raise HTTPException(e.response.status_code, detail=str(e))
+
+def _oc_post(path: str, payload: dict = None, timeout: int = 10):
+    """POST vers l'instance OpenClaw."""
+    try:
+        r = _requests.post(
+            f"{OPENCLAW_URL}{path}",
+            headers=_oc_headers(),
+            json=payload or {},
+            timeout=timeout,
+        )
+        r.raise_for_status()
+        try:
+            return r.json()
+        except Exception:
+            return {"ok": True}
+    except _requests.exceptions.ConnectionError:
+        raise HTTPException(502, detail="OpenClaw inaccessible (connexion refusée)")
+    except _requests.exceptions.Timeout:
+        raise HTTPException(504, detail="OpenClaw timeout")
+    except _requests.exceptions.HTTPError as e:
+        raise HTTPException(e.response.status_code, detail=str(e))
+
+# ── Status ──────────────────────────────────────────────────────────────────
+@app.get("/api/openclaw/status")
+def openclaw_status():
+    """Vérifie si OpenClaw est joignable et retourne quelques métriques."""
+    try:
+        r = _requests.get(f"{OPENCLAW_URL}/", headers=_oc_headers(), timeout=3)
+        reachable = r.status_code < 500
+    except Exception:
+        reachable = False
+
+    # Essaie aussi /health et /api/status
+    info = {}
+    if reachable:
+        for probe in ["/health", "/api/status", "/status"]:
+            try:
+                resp = _requests.get(f"{OPENCLAW_URL}{probe}", headers=_oc_headers(), timeout=3)
+                if resp.ok:
+                    info = resp.json()
+                    break
+            except Exception:
+                pass
+
+    return {"reachable": reachable, "url": OPENCLAW_URL, "info": info}
+
+# ── List agents ─────────────────────────────────────────────────────────────
+@app.get("/api/openclaw/agents")
+def openclaw_agents():
+    """Liste les agents disponibles dans OpenClaw.
+    Essaie plusieurs endpoints courants dans l'ordre."""
+    candidates = [
+        "/api/agents",
+        "/agents",
+        "/v1/agents",
+        "/api/sessions",
+        "/sessions",
+    ]
+    for path in candidates:
+        try:
+            r = _requests.get(f"{OPENCLAW_URL}{path}", headers=_oc_headers(), timeout=4)
+            if r.ok:
+                data = r.json()
+                # Normalise : on veut toujours une liste
+                if isinstance(data, list):
+                    return {"agents": data, "endpoint": path}
+                if isinstance(data, dict):
+                    for key in ("agents", "sessions", "items", "data", "results"):
+                        if key in data and isinstance(data[key], list):
+                            return {"agents": data[key], "endpoint": path}
+                    return {"agents": [data], "endpoint": path}
+        except Exception:
+            pass
+
+    raise HTTPException(404, detail="Aucun endpoint d'agents trouvé sur OpenClaw. Vérifie l'URL ou configure OPENCLAW_URL.")
+
+# ── Start agent ──────────────────────────────────────────────────────────────
+@app.post("/api/openclaw/agents/{agent_id}/start")
+def openclaw_start(agent_id: str):
+    """Démarre / réveille un agent OpenClaw."""
+    for path in [f"/api/agents/{agent_id}/start", f"/agents/{agent_id}/start",
+                 f"/api/agents/{agent_id}/run"]:
+        try:
+            r = _requests.post(f"{OPENCLAW_URL}{path}", headers=_oc_headers(),
+                               json={}, timeout=8)
+            if r.ok:
+                try:
+                    return r.json()
+                except Exception:
+                    return {"ok": True}
+        except _requests.exceptions.ConnectionError:
+            raise HTTPException(502, "OpenClaw inaccessible")
+        except Exception:
+            pass
+    raise HTTPException(404, detail=f"Endpoint start introuvable pour l'agent {agent_id}")
+
+# ── Stop agent ───────────────────────────────────────────────────────────────
+@app.post("/api/openclaw/agents/{agent_id}/stop")
+def openclaw_stop(agent_id: str):
+    """Arrête un agent OpenClaw."""
+    for path in [f"/api/agents/{agent_id}/stop", f"/agents/{agent_id}/stop",
+                 f"/api/agents/{agent_id}/kill"]:
+        try:
+            r = _requests.post(f"{OPENCLAW_URL}{path}", headers=_oc_headers(),
+                               json={}, timeout=8)
+            if r.ok:
+                try:
+                    return r.json()
+                except Exception:
+                    return {"ok": True}
+        except _requests.exceptions.ConnectionError:
+            raise HTTPException(502, "OpenClaw inaccessible")
+        except Exception:
+            pass
+    raise HTTPException(404, detail=f"Endpoint stop introuvable pour l'agent {agent_id}")
+
+# ── Logs ─────────────────────────────────────────────────────────────────────
+@app.get("/api/openclaw/agents/{agent_id}/logs")
+def openclaw_logs(agent_id: str, limit: int = 100):
+    """Récupère les logs / l'historique d'un agent."""
+    candidates = [
+        f"/api/agents/{agent_id}/logs",
+        f"/agents/{agent_id}/logs",
+        f"/api/agents/{agent_id}/history",
+        f"/api/sessions/{agent_id}/messages",
+        f"/sessions/{agent_id}/logs",
+    ]
+    for path in candidates:
+        try:
+            r = _requests.get(f"{OPENCLAW_URL}{path}",
+                              headers=_oc_headers(),
+                              params={"limit": limit},
+                              timeout=6)
+            if r.ok:
+                data = r.json()
+                if isinstance(data, list):
+                    return {"logs": data, "endpoint": path}
+                if isinstance(data, dict):
+                    for key in ("logs", "messages", "history", "items", "data"):
+                        if key in data and isinstance(data[key], list):
+                            return {"logs": data[key], "endpoint": path}
+                    return {"logs": [data], "endpoint": path}
+        except _requests.exceptions.ConnectionError:
+            raise HTTPException(502, "OpenClaw inaccessible")
+        except Exception:
+            pass
+    raise HTTPException(404, detail=f"Endpoint logs introuvable pour l'agent {agent_id}")

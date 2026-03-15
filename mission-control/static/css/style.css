@@ -134,6 +134,33 @@ textarea:focus, input:focus, select:focus { border-color: var(--accent); }
   background: var(--bg-card); color: var(--text); border: 1px solid var(--border);
   padding: 7px 16px; border-radius: 6px; font-size: 13px;
 }
+.btn-oc-sync {
+  display: inline-flex; align-items: center; gap: 5px;
+  background: rgba(99,102,241,0.1); color: var(--accent);
+  border: 1px solid rgba(99,102,241,0.35);
+  padding: 5px 12px; border-radius: 6px; font-size: 12px; font-weight: 500;
+  cursor: pointer; transition: background 0.15s, border-color 0.15s;
+  white-space: nowrap;
+}
+.btn-oc-sync:hover { background: rgba(99,102,241,0.2); border-color: var(--accent); }
+.btn-oc-sync:disabled { opacity: .4; cursor: not-allowed; }
+.btn-oc-sync.syncing { animation: spinSlow 1s linear infinite; }
+@keyframes spinSlow { to { transform: rotate(360deg); } }
+.oc-sync-status {
+  font-size: 11px; color: var(--text-muted);
+  white-space: nowrap;
+}
+.oc-sync-status.ok  { color: var(--pos); }
+.oc-sync-status.err { color: var(--neg); }
+
+/* Badge source openclaw sur les cards team */
+.team-card .oc-badge {
+  font-size: 9px; padding: 1px 5px; border-radius: 8px;
+  background: rgba(99,102,241,0.15); color: var(--accent);
+  border: 1px solid rgba(99,102,241,0.3);
+  position: absolute; top: 8px; right: 8px;
+}
+.team-card { position: relative; }
 .btn-danger {
   background: var(--neg); color: #fff; border: none;
   padding: 7px 16px; border-radius: 6px; font-size: 13px;
@@ -622,6 +649,131 @@ textarea:focus, input:focus, select:focus { border-color: var(--accent); }
 .form-row { display: flex; gap: 12px; }
 .form-row .form-group { flex: 1; }
 .flex1 { flex: 1; }
+
+/* ================================================================
+   OPENCLAW AGENTS TAB
+================================================================ */
+
+/* Tab highlight */
+.oc-tab { color: var(--accent) !important; }
+.oc-tab.active { border-bottom-color: var(--accent) !important; }
+
+/* Status badge */
+.oc-status-badge {
+  display: flex; align-items: center; gap: 7px;
+  background: var(--bg-card); border: 1px solid var(--border);
+  border-radius: 6px; padding: 4px 10px; font-size: 12px;
+}
+.oc-dot {
+  width: 8px; height: 8px; border-radius: 50%;
+  background: var(--text-muted); flex-shrink: 0;
+}
+.oc-dot.online  { background: var(--pos); box-shadow: 0 0 6px var(--pos); animation: pulse 2s infinite; }
+.oc-dot.offline { background: var(--neg); }
+.oc-url { color: var(--text-muted); font-size: 11px; }
+@keyframes pulse {
+  0%, 100% { opacity: 1; }
+  50%       { opacity: 0.4; }
+}
+
+/* Agent grid */
+.oc-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  gap: 14px;
+  margin-top: 16px;
+}
+.oc-empty {
+  grid-column: 1 / -1; text-align: center;
+  color: var(--text-muted); padding: 60px 0; font-size: 14px;
+}
+
+/* Agent card */
+.oc-card {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 16px;
+  display: flex; flex-direction: column; gap: 12px;
+  transition: border-color .15s, box-shadow .15s;
+}
+.oc-card:hover { border-color: var(--accent); box-shadow: 0 4px 16px rgba(0,0,0,0.25); }
+.oc-card.status-running { border-left: 3px solid var(--pos); }
+.oc-card.status-stopped { border-left: 3px solid var(--text-muted); }
+.oc-card.status-error   { border-left: 3px solid var(--neg); }
+.oc-card.status-idle    { border-left: 3px solid var(--warn); }
+
+.oc-card-head {
+  display: flex; align-items: center; gap: 10px;
+}
+.oc-avatar {
+  width: 36px; height: 36px; border-radius: 8px;
+  background: linear-gradient(135deg, var(--accent), #7c3aed);
+  display: flex; align-items: center; justify-content: center;
+  font-size: 18px; flex-shrink: 0;
+}
+.oc-card-info { flex: 1; min-width: 0; }
+.oc-card-name { font-size: 14px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.oc-card-id   { font-size: 11px; color: var(--text-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+.oc-status-chip {
+  font-size: 10px; font-weight: 600; padding: 2px 7px;
+  border-radius: 10px; text-transform: uppercase; letter-spacing: .4px;
+}
+.oc-status-chip.running { background: rgba(34,197,94,.15); color: var(--pos); }
+.oc-status-chip.stopped { background: rgba(100,116,139,.15); color: var(--text-muted); }
+.oc-status-chip.idle    { background: rgba(251,191,36,.15); color: var(--warn); }
+.oc-status-chip.error   { background: rgba(239,68,68,.15); color: var(--neg); }
+.oc-status-chip.unknown { background: rgba(100,116,139,.12); color: var(--text-muted); }
+
+.oc-card-meta { display: flex; flex-direction: column; gap: 3px; }
+.oc-meta-row  { display: flex; justify-content: space-between; font-size: 11px; color: var(--text-muted); }
+.oc-meta-val  { color: var(--text); font-weight: 500; }
+
+.oc-card-actions { display: flex; gap: 8px; }
+.oc-btn {
+  flex: 1; padding: 6px 0; border-radius: 6px; font-size: 12px; font-weight: 500;
+  border: 1px solid var(--border); background: var(--bg-hover); color: var(--text);
+  cursor: pointer; transition: background .12s, border-color .12s;
+}
+.oc-btn:hover { background: var(--bg-card); border-color: var(--accent); }
+.oc-btn.start { border-color: var(--pos); color: var(--pos); }
+.oc-btn.start:hover { background: rgba(34,197,94,.1); }
+.oc-btn.stop  { border-color: var(--neg); color: var(--neg); }
+.oc-btn.stop:hover { background: rgba(239,68,68,.1); }
+.oc-btn.logs  { border-color: var(--accent); color: var(--accent); }
+.oc-btn.logs:hover { background: rgba(99,102,241,.1); }
+.oc-btn:disabled { opacity: .4; cursor: not-allowed; }
+
+/* Logs modal */
+.oc-logs-modal { width: 820px; max-width: 95vw; max-height: 85vh; display: flex; flex-direction: column; }
+.oc-logs-toolbar {
+  display: flex; align-items: center; gap: 12px;
+  padding: 8px 20px; border-bottom: 1px solid var(--border); font-size: 12px;
+}
+.oc-autoscroll-label { display: flex; align-items: center; gap: 5px; cursor: pointer; color: var(--text-muted); }
+.btn-sm {
+  padding: 4px 10px; border-radius: 5px; font-size: 11px; font-weight: 500;
+  border: 1px solid var(--border); background: var(--bg-hover); color: var(--text);
+  cursor: pointer;
+}
+.btn-sm:hover { border-color: var(--accent); }
+.oc-logs-body {
+  flex: 1; overflow-y: auto; padding: 14px 20px;
+  font-family: 'JetBrains Mono', 'Fira Code', monospace; font-size: 12px; line-height: 1.7;
+  background: #0a0c10;
+}
+.oc-log-line { display: flex; gap: 10px; border-bottom: 1px solid rgba(255,255,255,.03); padding: 2px 0; }
+.oc-log-line:last-child { border-bottom: none; }
+.oc-log-ts   { color: #4a5568; white-space: nowrap; flex-shrink: 0; }
+.oc-log-role { font-weight: 600; flex-shrink: 0; min-width: 60px; }
+.oc-log-role.user      { color: var(--accent); }
+.oc-log-role.assistant { color: var(--pos); }
+.oc-log-role.system    { color: var(--warn); }
+.oc-log-role.tool      { color: #a78bfa; }
+.oc-log-content { flex: 1; color: var(--text); word-break: break-word; }
+.oc-logs-placeholder { color: var(--text-muted); text-align: center; padding: 40px; }
+.oc-log-raw { color: var(--text-muted); }
 
 /* ================================================================
    SCROLLBAR

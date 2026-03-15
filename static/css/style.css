@@ -1496,6 +1496,52 @@ td.comm { color: var(--text-muted); font-size: 12px; }
   .layout { grid-template-columns: 260px 1fr 240px; position: static; }
   .panel-trading { display: none; }
   .ibkr-section { display: block; }
+  .header-greeting { font-size: 14px; }
+}
+
+/* ================================================================
+   RESPONSIVE — TABLET PAYSAGE  (≤ 1024px)
+================================================================ */
+@media (max-width: 1024px) {
+  .layout { grid-template-columns: 230px 1fr 220px; }
+  .panel-header { padding: 12px 12px 10px; }
+  .panel-header h2 { font-size: 13px; }
+  .summary-chips { display: none; }
+  .header-greeting { display: none; }
+  .header { padding: 10px 16px; height: 56px; }
+  .layout { height: calc(100vh - 56px); top: 56px; }
+}
+
+/* ================================================================
+   RESPONSIVE — TABLET PORTRAIT  (≤ 820px)
+================================================================ */
+@media (max-width: 820px) {
+  :root { --header-h: 56px; }
+
+  /* Header compact */
+  .header { padding: 10px 14px; height: 56px; gap: 8px; }
+  .header-time { font-size: 18px; }
+  .header-date { font-size: 11px; }
+  .header-greeting { display: none; }
+  .summary-chips { display: none; }
+  .tg-btn span { display: none; }
+  .tg-btn { padding: 6px 8px; }
+
+  /* Layout 2 colonnes : agenda + tâches */
+  .layout {
+    grid-template-columns: 200px 1fr;
+    height: calc(100vh - 56px);
+    top: 56px;
+  }
+  .panel-side    { display: none; }
+  .panel-trading { display: none; }
+
+  /* Mini-calendar plus compact */
+  .cal-grid { gap: 2px; }
+  .cal-cell { font-size: 11px; padding: 3px 0; }
+
+  /* Modals plein-écran */
+  .modal { width: 96vw; margin: 0 auto; }
 }
 
 /* ---- 900px: Mobile — colonne unique ---- */

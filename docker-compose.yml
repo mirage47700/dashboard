@@ -9,6 +9,8 @@ services:
       - "127.0.0.1:8000:8000"   # Bind local only — Cloudflare Tunnel handles exposure
     volumes:
       - ./data:/app/data         # SQLite persistence
+      - .:/app
+      - /app/node_modules
     env_file:
       - .env
     environment:
