@@ -7,7 +7,7 @@ import secrets
 import sqlite3
 import subprocess
 from contextlib import asynccontextmanager
-from datetime import date, datetime, timedelta
+from datetime import date, datetime, timedelta, timezone
 from html import unescape as _unescape
 from pathlib import Path
 from typing import Optional
@@ -786,11 +786,15 @@ def _tc_fetch_events() -> list:
             return _tc_cache["events"]
 
     token = _tc_get_token()
+    from_date = (datetime.utcnow() - timedelta(days=7)).strftime("%Y-%m-%d")
+    until_date = (datetime.utcnow() + timedelta(days=365)).strftime("%Y-%m-%d")
     params = {
         "comp_id": _TC_COMP_ID,
         "instance": token,
         "originCompId": "",
         "time_zone": "America/New_York",
+        "from": from_date,
+        "until": until_date,
     }
     headers = {
         "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 Chrome/120.0.0.0 Safari/537.36",
