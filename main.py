@@ -223,6 +223,18 @@ try:
 except Exception as _e:
     print(f"[mission-control] Impossible de monter le sub-app: {_e}")
 
+# Include Twilio voice router at root level (/twilio/...)
+try:
+    import importlib.util as _ilu2
+    _tv_spec = _ilu2.spec_from_file_location(
+        "twilio_voice", BASE_DIR / "mission-control" / "twilio_voice.py"
+    )
+    _tv_mod = _ilu2.module_from_spec(_tv_spec)
+    _tv_spec.loader.exec_module(_tv_mod)
+    app.include_router(_tv_mod.router)
+except Exception as _e:
+    print(f"[twilio-voice] Impossible de charger: {_e}")
+
 
 # ---------------------------------------------------------------------------
 # Models
