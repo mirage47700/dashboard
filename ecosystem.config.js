@@ -16,7 +16,7 @@ module.exports = {
         KOKORO_URL: process.env.KOKORO_URL || "http://localhost:8001",
         KOKORO_VOICE: process.env.KOKORO_VOICE || "af_alloy",
         PUBLIC_URL: process.env.PUBLIC_URL || "https://voice.openclawgeorges.com",
-        OPENCLAW_URL: process.env.OPENCLAW_URL || "http://localhost:8000",
+        OPENCLAW_URL: process.env.OPENCLAW_URL || "http://localhost:18789",
         OPENCLAW_CHAT_PATH: process.env.OPENCLAW_CHAT_PATH || "/api/chat",
         OPENCLAW_TOKEN: process.env.OPENCLAW_TOKEN || "",
         TWILIO_LANG: process.env.TWILIO_LANG || "fr-FR",
