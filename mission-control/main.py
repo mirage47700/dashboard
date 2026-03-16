@@ -4,10 +4,16 @@ from fastapi.templating import Jinja2Templates
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 from typing import Optional
-import sqlite3, os, subprocess, json, asyncio, re, requests as _requests
+import sqlite3, os, subprocess, json, asyncio, re, requests as _requests, sys
 from datetime import datetime
 from pathlib import Path
 from contextlib import asynccontextmanager
+
+# Quand mission-control/main.py est chargé via importlib depuis le root,
+# son répertoire n'est pas dans sys.path : on l'ajoute.
+_MC_DIR = str(Path(__file__).parent)
+if _MC_DIR not in sys.path:
+    sys.path.insert(0, _MC_DIR)
 
 MEMORIES_PATH  = os.getenv("MEMORIES_PATH", "/root/memories.md")
 OBSIDIAN_VAULT = os.getenv("OBSIDIAN_VAULT", "")
